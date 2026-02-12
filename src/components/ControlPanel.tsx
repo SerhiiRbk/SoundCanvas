@@ -81,6 +81,58 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         )}
       </Section>
 
+      {/* ─── GPU Effects ─── */}
+      <Section title="GPU Effects">
+        <button
+          style={{
+            ...styles.modeButton,
+            ...(state.gpuEffects ? styles.gpuBtnActive : {}),
+            width: '100%',
+          }}
+          onClick={() => actions.setGpuEffects(!state.gpuEffects)}
+        >
+          {state.gpuEffects ? 'GPU Effects ON (G)' : 'GPU Effects OFF (G)'}
+        </button>
+      </Section>
+
+      {/* ─── Electric Flower ─── */}
+      <Section title="Electric Flower">
+        <button
+          style={{
+            ...styles.modeButton,
+            ...(state.electricFlower ? styles.flowerBtnActive : {}),
+            width: '100%',
+          }}
+          onClick={() => actions.setElectricFlower(!state.electricFlower)}
+        >
+          {state.electricFlower ? 'Electric Flower ON (F)' : 'Electric Flower OFF (F)'}
+        </button>
+        {state.electricFlower && (
+          <div style={styles.meditationHint}>
+            Rose-curve petals + radial blur — audio reactive
+          </div>
+        )}
+      </Section>
+
+      {/* ─── Particle Waves ─── */}
+      <Section title="Particle Waves">
+        <button
+          style={{
+            ...styles.modeButton,
+            ...(state.particleWaves ? styles.wavesBtnActive : {}),
+            width: '100%',
+          }}
+          onClick={() => actions.setParticleWaves(!state.particleWaves)}
+        >
+          {state.particleWaves ? 'Particle Waves ON (W)' : 'Particle Waves OFF (W)'}
+        </button>
+        {state.particleWaves && (
+          <div style={styles.meditationHint}>
+            Flowing 3D particle surfaces — audio reactive
+          </div>
+        )}
+      </Section>
+
       {/* ─── Performance Mode ─── */}
       <Section title="Mode">
         <button
@@ -536,6 +588,21 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'rgba(236, 200, 100, 0.25)',
     borderColor: 'rgba(236, 200, 100, 0.5)',
     color: '#f0d870',
+  },
+  gpuBtnActive: {
+    background: 'rgba(52, 211, 153, 0.25)',
+    borderColor: 'rgba(52, 211, 153, 0.5)',
+    color: '#6ee7b7',
+  },
+  flowerBtnActive: {
+    background: 'rgba(249, 115, 22, 0.25)',
+    borderColor: 'rgba(249, 115, 22, 0.5)',
+    color: '#fb923c',
+  },
+  wavesBtnActive: {
+    background: 'rgba(59, 130, 246, 0.25)',
+    borderColor: 'rgba(59, 130, 246, 0.5)',
+    color: '#93c5fd',
   },
   meditationHint: {
     fontSize: 10,

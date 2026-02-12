@@ -42,11 +42,11 @@ export const CHORD_CHANGE_BARS = 2;
 export const MELODIC_SCORE_THRESHOLD = 0.6;
 
 // ─── Visual ───
-export const MAX_TRAIL_POINTS = 150;
+export const MAX_TRAIL_POINTS = 280;
 export const TRAIL_DECAY_TAU_MIN = 0.3;
 export const TRAIL_DECAY_TAU_MAX = 0.6;
-export const TRAIL_BASE_WIDTH = 2;
-export const TRAIL_VELOCITY_WIDTH_K = 0.04;
+export const TRAIL_BASE_WIDTH = 2.5;
+export const TRAIL_VELOCITY_WIDTH_K = 0.05;
 
 export const MAX_PARTICLES = 500;
 export const PARTICLE_BASE_COUNT = 10;

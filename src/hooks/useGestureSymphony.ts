@@ -53,6 +53,9 @@ export interface GestureSymphonyState {
   recordingBlob: Blob | null;
   meditationMode: boolean;
   eternityMode: boolean;
+  gpuEffects: boolean;
+  electricFlower: boolean;
+  particleWaves: boolean;
 }
 
 export interface GestureSymphonyActions {
@@ -78,6 +81,9 @@ export interface GestureSymphonyActions {
   dismissRecording: () => void;
   setMeditationMode: (on: boolean) => void;
   setEternityMode: (on: boolean) => void;
+  setGpuEffects: (on: boolean) => void;
+  setElectricFlower: (on: boolean) => void;
+  setParticleWaves: (on: boolean) => void;
 }
 
 export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
@@ -116,6 +122,9 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
     recordingBlob: null,
     meditationMode: false,
     eternityMode: false,
+    gpuEffects: true,
+    electricFlower: true,
+    particleWaves: false,
   });
 
   const stateRef = useRef(state);
@@ -205,6 +214,9 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
       isInitialized: true,
       isPlaying: true,
       currentChord: harmony.getCurrentChord().name,
+      gpuEffects: visual.isGpuEffectsEnabled(),
+      electricFlower: visual.isElectricFlowerEnabled(),
+      particleWaves: visual.isParticleWavesEnabled(),
     }));
 
     // Start audio frame update loop
@@ -965,6 +977,21 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
     }
   }, []);
 
+  const setGpuEffects = useCallback((on: boolean) => {
+    visualRef.current?.setGpuEffects(on);
+    setState((s) => ({ ...s, gpuEffects: on }));
+  }, []);
+
+  const setElectricFlower = useCallback((on: boolean) => {
+    visualRef.current?.setElectricFlower(on);
+    setState((s) => ({ ...s, electricFlower: on }));
+  }, []);
+
+  const setParticleWaves = useCallback((on: boolean) => {
+    visualRef.current?.setParticleWaves(on);
+    setState((s) => ({ ...s, particleWaves: on }));
+  }, []);
+
   const setVisualMode = useCallback((mode: VisualModeName) => {
     visualRef.current?.setPreset(mode);
     setState((s) => ({ ...s, visualMode: mode }));
@@ -1168,6 +1195,9 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
       dismissRecording,
       setMeditationMode,
       setEternityMode,
+      setGpuEffects,
+      setElectricFlower,
+      setParticleWaves,
     } satisfies GestureSymphonyActions,
     handleMouseMove,
     handleMouseDown,

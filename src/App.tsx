@@ -67,11 +67,17 @@ const App: React.FC = () => {
     handleStart();
   }, [handleStart]);
 
-  // Keyboard shortcuts: H = panel, P = performance mode, M = meditation, E = eternity
+  // Keyboard shortcuts: H = panel, P = performance mode, M = meditation, E = eternity, G = GPU
   const meditationRef = useRef(state.meditationMode);
   meditationRef.current = state.meditationMode;
   const eternityRef = useRef(state.eternityMode);
   eternityRef.current = state.eternityMode;
+  const gpuRef = useRef(state.gpuEffects);
+  gpuRef.current = state.gpuEffects;
+  const flowerRef = useRef(state.electricFlower);
+  flowerRef.current = state.electricFlower;
+  const wavesRef = useRef(state.particleWaves);
+  wavesRef.current = state.particleWaves;
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -86,6 +92,15 @@ const App: React.FC = () => {
       }
       if (e.key === 'e' || e.key === 'E') {
         actions.setEternityMode(!eternityRef.current);
+      }
+      if (e.key === 'g' || e.key === 'G') {
+        actions.setGpuEffects(!gpuRef.current);
+      }
+      if (e.key === 'f' || e.key === 'F') {
+        actions.setElectricFlower(!flowerRef.current);
+      }
+      if (e.key === 'w' || e.key === 'W') {
+        actions.setParticleWaves(!wavesRef.current);
       }
     };
     window.addEventListener('keydown', handleKey);
@@ -169,6 +184,12 @@ const App: React.FC = () => {
           <kbd style={styles.kbd}>M</kbd> meditation
           {' '}
           <kbd style={styles.kbd}>E</kbd> eternity
+          {' '}
+          <kbd style={styles.kbd}>G</kbd> gpu
+          {' '}
+          <kbd style={styles.kbd}>F</kbd> flower
+          {' '}
+          <kbd style={styles.kbd}>W</kbd> waves
         </div>
       )}
     </div>
