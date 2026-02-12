@@ -399,6 +399,12 @@ export class SynthEngine {
   private vibrato: Tone.Vibrato | null = null;
   private chorus: Tone.Chorus | null = null;
 
+  /* ── Meditation percussion ── */
+  private bowlSynth: Tone.FMSynth | null = null;
+  private membraneSynth: Tone.MembraneSynth | null = null;
+  private brushSynth: Tone.NoiseSynth | null = null;
+  private brushFilter2: Tone.Filter | null = null;
+
   /* ── Breath noise layer for wind instruments ── */
   private breathSynth: Tone.NoiseSynth | null = null;
   private breathFilter: Tone.Filter | null = null;
@@ -497,6 +503,39 @@ export class SynthEngine {
     this.ensembleReverb = new Tone.Reverb({ decay: 2.5, wet: 0.35 });
     this.ensembleBus.connect(this.ensembleReverb);
     this.ensembleReverb.connect(this.masterGain);
+
+    // ── Meditation percussion ──
+    // Singing bowl: metallic FM with long release → reverb
+    this.bowlSynth = new Tone.FMSynth({
+      harmonicity: 5.07,        // metallic inharmonic ratio
+      modulationIndex: 1.5,
+      oscillator: { type: 'sine' },
+      modulation: { type: 'triangle' },
+      envelope: { attack: 0.01, decay: 4.0, sustain: 0.0, release: 4.0 },
+      modulationEnvelope: { attack: 0.01, decay: 2.0, sustain: 0.0, release: 3.0 },
+      volume: -22,
+    });
+    this.bowlSynth.connect(this.reverb);
+
+    // Soft membrane: gentle "dun" like a frame drum
+    this.membraneSynth = new Tone.MembraneSynth({
+      pitchDecay: 0.08,
+      octaves: 3,
+      oscillator: { type: 'sine' },
+      envelope: { attack: 0.002, decay: 0.8, sustain: 0.0, release: 1.0 },
+      volume: -26,
+    });
+    this.membraneSynth.connect(this.reverb);
+
+    // Brush noise: short filtered pink noise (rain-stick feel)
+    this.brushFilter2 = new Tone.Filter({ frequency: 3000, type: 'bandpass', Q: 0.8 });
+    this.brushSynth = new Tone.NoiseSynth({
+      noise: { type: 'pink' },
+      envelope: { attack: 0.005, decay: 0.12, sustain: 0.0, release: 0.15 },
+      volume: -30,
+    });
+    this.brushSynth.connect(this.brushFilter2);
+    this.brushFilter2.connect(this.reverb);
 
     this.initialized = true;
   }
@@ -872,6 +911,28 @@ export class SynthEngine {
     this.bassSynth.triggerAttackRelease(note, duration, undefined, 0.5);
   }
 
+  /**
+   * Meditation percussion.
+   * @param kind  'bowl' | 'membrane' | 'brush'
+   * @param pitch MIDI pitch (only used for bowl and membrane)
+   * @param vel   0..1 velocity
+   */
+  playMeditationPerc(kind: 'bowl' | 'membrane' | 'brush', pitch = 60, vel = 0.4): void {
+    if (!this.initialized) return;
+    const note = midiToNoteName(pitch);
+    switch (kind) {
+      case 'bowl':
+        this.bowlSynth?.triggerAttackRelease(note, 3.0, undefined, vel);
+        break;
+      case 'membrane':
+        this.membraneSynth?.triggerAttackRelease(note, 0.6, undefined, vel);
+        break;
+      case 'brush':
+        this.brushSynth?.triggerAttackRelease(0.1, undefined, vel);
+        break;
+    }
+  }
+
   /* ────────────────────────────────────────────
      Parameter setters
      ──────────────────────────────────────────── */
@@ -936,6 +997,10 @@ export class SynthEngine {
     this.bassSynth?.dispose();
     this.breathSynth?.dispose();
     this.breathFilter?.dispose();
+    this.bowlSynth?.dispose();
+    this.membraneSynth?.dispose();
+    this.brushSynth?.dispose();
+    this.brushFilter2?.dispose();
     this.filter?.dispose();
     this.reverb?.dispose();
     this.delay?.dispose();

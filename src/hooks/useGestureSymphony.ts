@@ -21,6 +21,7 @@ import {
 } from '../config';
 import type { VisualModeName } from '../composer/composerTypes';
 import type { ScenePreset } from '../config/scenePresets';
+import { MeditationEngine, type PathMode } from '../meditation/meditationEngine';
 
 export interface EnsembleVoiceInfo {
   instrumentId: string;
@@ -50,6 +51,8 @@ export interface GestureSymphonyState {
   recordingElapsed: number;
   recordingMaxDuration: number;
   recordingBlob: Blob | null;
+  meditationMode: boolean;
+  eternityMode: boolean;
 }
 
 export interface GestureSymphonyActions {
@@ -73,6 +76,8 @@ export interface GestureSymphonyActions {
   stopRecording: () => void;
   setRecordingDuration: (seconds: number) => void;
   dismissRecording: () => void;
+  setMeditationMode: (on: boolean) => void;
+  setEternityMode: (on: boolean) => void;
 }
 
 export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
@@ -109,6 +114,8 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
     recordingElapsed: 0,
     recordingMaxDuration: 30,
     recordingBlob: null,
+    meditationMode: false,
+    eternityMode: false,
   });
 
   const stateRef = useRef(state);
@@ -120,6 +127,19 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
   // Recording engine
   const recorderRef = useRef<RecordingEngine | null>(null);
   const recElapsedRef = useRef<number>(0);
+
+  // Meditation engine
+  const meditationRef = useRef<MeditationEngine>(new MeditationEngine());
+  const meditationActiveRef = useRef(false);
+  const meditationLastNoteRef = useRef<number>(0);
+  // Store original settings when entering meditation to restore on exit
+  const preMeditationRef = useRef<{
+    bpm: number;
+    melodicStability: number;
+    rootNote: string;
+    mode: string;
+    progression: string;
+  } | null>(null);
 
   // ─── Initialize ───
   const initialize = useCallback(async () => {
@@ -195,9 +215,163 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
   const audioFrameIdRef = useRef<number>(0);
 
   function startAudioFrameLoop(synth: SynthEngine, visual: VisualEngine) {
+    let lastMedTime = performance.now();
+
     const update = () => {
       if (synth.isReady()) {
         visual.updateAudio(synth.getAudioFrameData());
+      }
+
+      // ── Meditation autonomous cursor tick ──
+      if (meditationActiveRef.current) {
+        const now = performance.now();
+        const dt = Math.min((now - lastMedTime) / 1000, 0.05);
+        lastMedTime = now;
+
+        const canvas = canvasRef.current;
+        if (canvas && gestureRef.current && synthRef.current && harmonyRef.current) {
+          const cursor = meditationRef.current.tick(dt, canvas.width, canvas.height);
+
+          // Feed position to visual engine (cursor + trail + meditation path)
+          visual.updateCursor({ x: cursor.x, y: cursor.y, velocity: cursor.velocity, pitch: prevPitchRef.current });
+          visual.pushMeditationPosition(cursor.x, cursor.y, prevPitchRef.current);
+
+          // ── Entropy-driven meditative note generation ──
+
+          // Timing entropy: use fractional µs of CPU clock as randomness source
+          const cpuEntropy = (now * 1000) % 1; // sub-ms fractional part
+          // Combine with Math.random for unpredictable behaviour
+          const rng = () => (Math.random() + cpuEntropy) % 1;
+
+          // Humanized interval: 300–500ms with jitter from entropy
+          const BASE_INTERVAL = 350;
+          const jitter = (rng() - 0.5) * 200; // ±100ms
+          const interval = BASE_INTERVAL + jitter;
+
+          if (now - meditationLastNoteRef.current >= interval) {
+            meditationLastNoteRef.current = now;
+
+            const scale = buildScale(stateRef.current.rootNote, stateRef.current.mode);
+            const chord = harmonyRef.current.getCurrentChord();
+            const chordPCs = Array.from(chord.pitchClasses);
+            const scalePCs = Array.from(scale.pitchClasses);
+
+            // ── Random rest (breathing silence): ~18% chance ──
+            const isRest = rng() < 0.18;
+            if (isRest) {
+              // Still update visuals during rest
+              visual.updateCursor({ x: cursor.x, y: cursor.y, velocity: cursor.velocity * 0.3, pitch: prevPitchRef.current });
+
+              // Occasional brush noise during rests (rain-stick feel)
+              if (rng() < 0.3) {
+                synthRef.current.playMeditationPerc('brush', 60, 0.15 + rng() * 0.15);
+                visual.onMeditationPerc(cursor.x, cursor.y);
+              }
+            } else {
+              // ── Pitch generation with entropy ──
+
+              // Base pitch from position
+              let rawPitch = 48 + (cursor.x / canvas.width) * 36;
+
+              // Random octave shift: ~12% chance to jump ±1 octave
+              if (rng() < 0.12) {
+                rawPitch += rng() < 0.5 ? 12 : -12;
+              }
+
+              // Random chord-tone leap: ~15% chance to snap directly to a chord tone
+              if (rng() < 0.15 && chordPCs.length > 0) {
+                const ct = chordPCs[Math.floor(rng() * chordPCs.length)];
+                const octave = Math.floor(rawPitch / 12);
+                rawPitch = octave * 12 + ct;
+              }
+
+              // Melodic correction with slightly randomized stability
+              const stabilityJitter = 0.88 + rng() * 0.08; // 0.88..0.96
+              const result = melodicCorrection({
+                pRaw: rawPitch,
+                pPrev: prevPitchRef.current,
+                pPrevPrev: prevPrevPitchRef.current,
+                scale,
+                chord,
+                m: stabilityJitter,
+              });
+
+              const pitch = result.selectedPitch;
+              const yFrac = cursor.y / canvas.height;
+
+              // Velocity with entropy: 30..65 range with gentle fluctuation
+              const velocity = Math.round(30 + yFrac * 20 + rng() * 15);
+
+              // Duration with entropy: 0.6..1.8s (longer = more meditative)
+              const duration = 0.6 + rng() * 1.2;
+
+              prevPrevPitchRef.current = prevPitchRef.current;
+              prevPitchRef.current = pitch;
+
+              // ── Grace note: ~10% chance, quick note 1-2 scale steps below ──
+              if (rng() < 0.10 && scalePCs.length > 0) {
+                const graceOffset = scalePCs.length >= 2 ? (rng() < 0.5 ? 1 : 2) : 1;
+                const gracePitch = pitch - graceOffset;
+                synthRef.current.playNote(gracePitch, Math.round(velocity * 0.5), 0.08);
+              }
+
+              // Play main note
+              synthRef.current.playNote(pitch, velocity, duration);
+              synthRef.current.setFilterCutoff(1800 + yFrac * 1200 + rng() * 500);
+
+              // Visual feedback
+              visual.onNoteOn(cursor.x, cursor.y, pitch, velocity);
+
+              // ── Percussion (sparse, probabilistic) ──
+              // Singing bowl: ~8% chance, on chord tones
+              if (rng() < 0.08 && chordPCs.includes(pitch % 12)) {
+                const bowlPitch = 72 + (pitch % 12); // high register
+                synthRef.current.playMeditationPerc('bowl', bowlPitch, 0.2 + rng() * 0.2);
+                visual.onMeditationPerc(cursor.x, cursor.y);
+              }
+
+              // Soft membrane: ~6% chance on strong beats
+              if (rng() < 0.06) {
+                synthRef.current.playMeditationPerc('membrane', 48, 0.15 + rng() * 0.1);
+              }
+
+              // Brush: ~10% chance (very quiet texture)
+              if (rng() < 0.10) {
+                synthRef.current.playMeditationPerc('brush', 60, 0.1 + rng() * 0.1);
+              }
+            }
+
+            // Advance harmony (slower: count beats at meditation rate)
+            beatCounterRef.current++;
+            if (beatCounterRef.current >= 8) {
+              beatCounterRef.current = 0;
+              barCounterRef.current++;
+              const chordChanged = harmonyRef.current.advanceBar();
+              if (chordChanged) {
+                const newChord = harmonyRef.current.getCurrentChord();
+                const newChordPitches = Array.from(newChord.pitchClasses).map((pc) => pc + 60);
+                synthRef.current.playChord(newChordPitches, 3.5);
+                synthRef.current.playBass(newChord.root + 36, 3.5);
+                synthRef.current.setMusicalContext(
+                  newChord.pitchClasses as Set<number>,
+                  scale.pitchClasses as Set<number>,
+                  newChord.root,
+                );
+
+                // Singing bowl on every chord change for meditative pulse
+                const bowlNote = newChord.root + 72;
+                synthRef.current.playMeditationPerc('bowl', bowlNote, 0.3);
+                visual.onMeditationPerc(cursor.x, cursor.y);
+
+                setState((s) => ({ ...s, currentChord: newChord.name, currentPitch: prevPitchRef.current }));
+              }
+            }
+
+            setState((s) => ({ ...s, currentPitch: prevPitchRef.current }));
+          }
+        }
+      } else {
+        lastMedTime = performance.now();
       }
 
       const debug = visual.getDebugInfo();
@@ -614,6 +788,183 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
     setState((s) => ({ ...s, recordingBlob: null }));
   }, []);
 
+  // ─── Meditation Mode ───
+  const setMeditationMode = useCallback((on: boolean) => {
+    // If eternity is active, turn it off first
+    if (on && stateRef.current.eternityMode) {
+      visualRef.current?.setEternityMode(false);
+      setState((s) => ({ ...s, eternityMode: false }));
+    }
+
+    meditationActiveRef.current = on;
+    meditationRef.current.setPathMode('meditation');
+
+    if (on) {
+      // Save current settings
+      preMeditationRef.current = {
+        bpm: stateRef.current.bpm,
+        melodicStability: stateRef.current.melodicStability,
+        rootNote: stateRef.current.rootNote,
+        mode: stateRef.current.mode,
+        progression: stateRef.current.progression,
+      };
+
+      // Apply meditative parameters
+      synthRef.current?.setBPM(72);
+      visualRef.current?.setMelodicStability(0.92);
+      visualRef.current?.setMeditationMode(true);
+
+      // Switch to pentatonic minor for consonant intervals
+      const scale = buildScale(stateRef.current.rootNote, 'pentatonicMinor');
+      harmonyRef.current?.setScale(scale);
+      harmonyRef.current?.setProgression('I-vi-IV-V');
+      const chord = harmonyRef.current?.getCurrentChord();
+      if (chord) {
+        synthRef.current?.setMusicalContext(
+          chord.pitchClasses as Set<number>,
+          scale.pitchClasses as Set<number>,
+          chord.root,
+        );
+      }
+
+      // Reset meditation engine for fresh path
+      meditationRef.current.reset();
+      meditationLastNoteRef.current = 0;
+      beatCounterRef.current = 0;
+
+      setState((s) => ({
+        ...s,
+        meditationMode: true,
+        bpm: 72,
+        melodicStability: 0.92,
+        mode: 'pentatonicMinor',
+        progression: 'I-vi-IV-V',
+      }));
+    } else {
+      // Restore previous settings
+      visualRef.current?.setMeditationMode(false);
+      const prev = preMeditationRef.current;
+      if (prev) {
+        synthRef.current?.setBPM(prev.bpm);
+        visualRef.current?.setMelodicStability(prev.melodicStability);
+        const scale = buildScale(prev.rootNote, prev.mode);
+        harmonyRef.current?.setScale(scale);
+        harmonyRef.current?.setProgression(prev.progression);
+        const chord = harmonyRef.current?.getCurrentChord();
+        if (chord) {
+          synthRef.current?.setMusicalContext(
+            chord.pitchClasses as Set<number>,
+            scale.pitchClasses as Set<number>,
+            chord.root,
+          );
+        }
+        setState((s) => ({
+          ...s,
+          meditationMode: false,
+          bpm: prev.bpm,
+          melodicStability: prev.melodicStability,
+          rootNote: prev.rootNote,
+          mode: prev.mode,
+          progression: prev.progression,
+        }));
+        preMeditationRef.current = null;
+      } else {
+        setState((s) => ({ ...s, meditationMode: false }));
+      }
+    }
+  }, []);
+
+  // ─── Eternity Mode (∞ lemniscate path) ───
+  const setEternityMode = useCallback((on: boolean) => {
+    // If meditation is active, turn it off first
+    if (on && meditationActiveRef.current) {
+      // Restore from meditation before switching
+      visualRef.current?.setMeditationMode(false);
+      meditationActiveRef.current = false;
+    }
+
+    meditationActiveRef.current = on; // reuse same autonomous tick
+
+    if (on) {
+      // Save current settings
+      preMeditationRef.current = {
+        bpm: stateRef.current.bpm,
+        melodicStability: stateRef.current.melodicStability,
+        rootNote: stateRef.current.rootNote,
+        mode: stateRef.current.mode,
+        progression: stateRef.current.progression,
+      };
+
+      // Set path mode to eternity (lemniscate)
+      meditationRef.current.setPathMode('eternity');
+      meditationRef.current.reset();
+      meditationLastNoteRef.current = 0;
+      beatCounterRef.current = 0;
+
+      // Eternity uses a dreamy, slower tempo and lydian mode for ethereal quality
+      synthRef.current?.setBPM(66);
+      visualRef.current?.setMelodicStability(0.95);
+      visualRef.current?.setMeditationMode(true);
+      visualRef.current?.setEternityMode(true);
+
+      const scale = buildScale(stateRef.current.rootNote, 'pentatonicMajor');
+      harmonyRef.current?.setScale(scale);
+      harmonyRef.current?.setProgression('I-vi-IV-V');
+      const chord = harmonyRef.current?.getCurrentChord();
+      if (chord) {
+        synthRef.current?.setMusicalContext(
+          chord.pitchClasses as Set<number>,
+          scale.pitchClasses as Set<number>,
+          chord.root,
+        );
+      }
+
+      setState((s) => ({
+        ...s,
+        meditationMode: false,
+        eternityMode: true,
+        bpm: 66,
+        melodicStability: 0.95,
+        mode: 'pentatonicMajor',
+        progression: 'I-vi-IV-V',
+      }));
+    } else {
+      // Restore
+      visualRef.current?.setMeditationMode(false);
+      visualRef.current?.setEternityMode(false);
+      meditationRef.current.setPathMode('meditation');
+
+      const prev = preMeditationRef.current;
+      if (prev) {
+        synthRef.current?.setBPM(prev.bpm);
+        visualRef.current?.setMelodicStability(prev.melodicStability);
+        const scale = buildScale(prev.rootNote, prev.mode);
+        harmonyRef.current?.setScale(scale);
+        harmonyRef.current?.setProgression(prev.progression);
+        const chord = harmonyRef.current?.getCurrentChord();
+        if (chord) {
+          synthRef.current?.setMusicalContext(
+            chord.pitchClasses as Set<number>,
+            scale.pitchClasses as Set<number>,
+            chord.root,
+          );
+        }
+        setState((s) => ({
+          ...s,
+          eternityMode: false,
+          bpm: prev.bpm,
+          melodicStability: prev.melodicStability,
+          rootNote: prev.rootNote,
+          mode: prev.mode,
+          progression: prev.progression,
+        }));
+        preMeditationRef.current = null;
+      } else {
+        setState((s) => ({ ...s, eternityMode: false }));
+      }
+    }
+  }, []);
+
   const setVisualMode = useCallback((mode: VisualModeName) => {
     visualRef.current?.setPreset(mode);
     setState((s) => ({ ...s, visualMode: mode }));
@@ -815,6 +1166,8 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
       stopRecording,
       setRecordingDuration,
       dismissRecording,
+      setMeditationMode,
+      setEternityMode,
     } satisfies GestureSymphonyActions,
     handleMouseMove,
     handleMouseDown,

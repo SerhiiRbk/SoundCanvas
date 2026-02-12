@@ -67,7 +67,12 @@ const App: React.FC = () => {
     handleStart();
   }, [handleStart]);
 
-  // Keyboard shortcuts: H = panel, P = performance mode
+  // Keyboard shortcuts: H = panel, P = performance mode, M = meditation, E = eternity
+  const meditationRef = useRef(state.meditationMode);
+  meditationRef.current = state.meditationMode;
+  const eternityRef = useRef(state.eternityMode);
+  eternityRef.current = state.eternityMode;
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'h' || e.key === 'H') {
@@ -76,10 +81,16 @@ const App: React.FC = () => {
       if (e.key === 'p' || e.key === 'P') {
         setPerformanceMode((v) => !v);
       }
+      if (e.key === 'm' || e.key === 'M') {
+        actions.setMeditationMode(!meditationRef.current);
+      }
+      if (e.key === 'e' || e.key === 'E') {
+        actions.setEternityMode(!eternityRef.current);
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, []);
+  }, [actions]);
 
   // In performance mode: hide panel
   const showPanel = panelVisible && !performanceMode;
@@ -153,7 +164,11 @@ const App: React.FC = () => {
         <div style={styles.keyHint}>
           <kbd style={styles.kbd}>H</kbd> controls
           {' '}
-          <kbd style={styles.kbd}>P</kbd> performance mode
+          <kbd style={styles.kbd}>P</kbd> performance
+          {' '}
+          <kbd style={styles.kbd}>M</kbd> meditation
+          {' '}
+          <kbd style={styles.kbd}>E</kbd> eternity
         </div>
       )}
     </div>

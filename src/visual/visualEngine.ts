@@ -18,6 +18,7 @@ import { TrailRenderer } from './trailRenderer';
 import { ParticleSystem } from './particleSystem';
 import { FlowerPattern } from './flowerPattern';
 import { PostProcessing } from './postProcessing';
+import { MeditationVisuals } from './meditationVisuals';
 import { pitchToHue, hslToString } from './colorMapping';
 import {
   BACKGROUND_COLOR,
@@ -38,6 +39,7 @@ export class VisualEngine {
   private particles: ParticleSystem;
   private flower: FlowerPattern;
   private postFx: PostProcessing;
+  private meditation: MeditationVisuals;
 
   // State
   private cursor: CursorState = { x: -100, y: -100, velocity: 0, pitch: 60 };
@@ -70,6 +72,7 @@ export class VisualEngine {
     this.particles = new ParticleSystem();
     this.flower = new FlowerPattern();
     this.postFx = new PostProcessing(canvas.width, canvas.height);
+    this.meditation = new MeditationVisuals();
   }
 
   // ═══════════ PUBLIC API ═══════════
@@ -128,6 +131,26 @@ export class VisualEngine {
     this.flower.setEnabled(on);
   }
 
+  /** Enable / disable meditation visual overlays */
+  setMeditationMode(on: boolean): void {
+    this.meditation.setEnabled(on);
+  }
+
+  /** Push meditation cursor position for the flowing path trace */
+  pushMeditationPosition(x: number, y: number, pitch: number): void {
+    this.meditation.pushPosition(x, y, pitch);
+  }
+
+  /** Trigger percussion visual effect (ripple + firefly burst) */
+  onMeditationPerc(x: number, y: number): void {
+    this.meditation.onPercHit(x, y);
+  }
+
+  /** Enable / disable eternity (∞) visual overlay */
+  setEternityMode(on: boolean): void {
+    this.meditation.setEternityOverlay(on);
+  }
+
   /** Show / hide watermark (enable during recording) */
   setWatermark(on: boolean, text?: string): void {
     this.showWatermark = on;
@@ -169,6 +192,7 @@ export class VisualEngine {
 
     this.particles.update(dt, this.sHigh);
     this.flower.update(dt);
+    this.meditation.update(dt);
     this.render(dt);
     this.rafId = requestAnimationFrame(this.tick);
   };
@@ -205,6 +229,13 @@ export class VisualEngine {
     if (this.cursorActive) {
       this.drawAmbient(ctx);
     }
+
+    // ── 3b. Meditation harmonics (rings, waves, mandala) ──
+    this.meditation.render(
+      ctx, blurCx, blurCy,
+      this.sRms, this.sLow, this.sHigh,
+      this.cursor.pitch,
+    );
 
     // ── 4. Trail ──
     this.trail.render(ctx, this.sRms);

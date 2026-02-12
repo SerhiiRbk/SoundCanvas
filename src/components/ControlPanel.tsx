@@ -43,6 +43,44 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         <SceneSelector onSelect={actions.applyScene} compact />
       </Section>
 
+      {/* ─── Meditation Mode ─── */}
+      <Section title="Meditation">
+        <button
+          style={{
+            ...styles.modeButton,
+            ...(state.meditationMode ? styles.meditationBtnActive : {}),
+            width: '100%',
+          }}
+          onClick={() => actions.setMeditationMode(!state.meditationMode)}
+        >
+          {state.meditationMode ? 'Exit Meditation' : 'Meditation Mode (M)'}
+        </button>
+        {state.meditationMode && (
+          <div style={styles.meditationHint}>
+            Autonomous cursor, pentatonic scale, slow tempo
+          </div>
+        )}
+      </Section>
+
+      {/* ─── Eternity Mode ─── */}
+      <Section title="Eternity">
+        <button
+          style={{
+            ...styles.modeButton,
+            ...(state.eternityMode ? styles.eternityBtnActive : {}),
+            width: '100%',
+          }}
+          onClick={() => actions.setEternityMode(!state.eternityMode)}
+        >
+          {state.eternityMode ? 'Exit Eternity' : 'Eternity Mode (E)'}
+        </button>
+        {state.eternityMode && (
+          <div style={styles.meditationHint}>
+            Lemniscate path, dreamy tones, infinite flow
+          </div>
+        )}
+      </Section>
+
       {/* ─── Performance Mode ─── */}
       <Section title="Mode">
         <button
@@ -488,6 +526,23 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 4,
     textTransform: 'uppercase' as const,
     letterSpacing: '0.04em',
+  },
+  meditationBtnActive: {
+    background: 'rgba(129, 140, 248, 0.3)',
+    borderColor: 'rgba(129, 140, 248, 0.5)',
+    color: '#c4b5fd',
+  },
+  eternityBtnActive: {
+    background: 'rgba(236, 200, 100, 0.25)',
+    borderColor: 'rgba(236, 200, 100, 0.5)',
+    color: '#f0d870',
+  },
+  meditationHint: {
+    fontSize: 10,
+    color: 'rgba(196, 181, 253, 0.5)',
+    marginTop: 6,
+    fontStyle: 'italic' as const,
+    textAlign: 'center' as const,
   },
   debug: {
     display: 'flex',
