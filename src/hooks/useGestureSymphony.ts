@@ -7,7 +7,7 @@
 
 import { useRef, useCallback, useEffect, useState } from 'react';
 import { GestureAnalyzer } from '../gesture/gestureAnalyzer';
-import { SynthEngine } from '../audio/synthEngine';
+import { SynthEngine, INSTRUMENT_PRESETS } from '../audio/synthEngine';
 import { LoopEngine } from '../audio/loopEngine';
 import { VisualEngine } from '../visual/visualEngine';
 import { HarmonyEngine, PROGRESSIONS } from '../music/harmonyEngine';
@@ -28,6 +28,7 @@ export interface GestureSymphonyState {
   rootNote: string;
   mode: string;
   progression: string;
+  instrument: string;
   visualMode: VisualModeName;
   reelMode: boolean;
   currentChord: string;
@@ -43,6 +44,7 @@ export interface GestureSymphonyActions {
   setRootNote: (root: string) => void;
   setMode: (mode: string) => void;
   setProgression: (name: string) => void;
+  setInstrument: (id: string) => void;
   setVisualMode: (mode: VisualModeName) => void;
   setReelMode: (enabled: boolean) => void;
   startLoop: () => void;
@@ -72,6 +74,7 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
     rootNote: 'C',
     mode: 'major',
     progression: 'I-V-vi-IV',
+    instrument: 'default',
     visualMode: 'cinematic',
     reelMode: false,
     currentChord: 'C',
@@ -302,6 +305,11 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
     }));
   }, []);
 
+  const setInstrument = useCallback((id: string) => {
+    synthRef.current?.setInstrument(id);
+    setState((s) => ({ ...s, instrument: id }));
+  }, []);
+
   const setVisualMode = useCallback((mode: VisualModeName) => {
     visualRef.current?.setPreset(mode);
     setState((s) => ({ ...s, visualMode: mode }));
@@ -374,6 +382,7 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
       setRootNote,
       setMode,
       setProgression,
+      setInstrument,
       setVisualMode,
       setReelMode,
       startLoop,
@@ -388,5 +397,6 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
       key,
       name: val.name,
     })),
+    availableInstruments: INSTRUMENT_PRESETS.map((p) => ({ id: p.id, name: p.name })),
   };
 }

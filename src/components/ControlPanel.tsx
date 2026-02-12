@@ -15,6 +15,7 @@ interface ControlPanelProps {
   availableModes: string[];
   availableRoots: string[];
   availableProgressions: { key: string; name: string }[];
+  availableInstruments: { id: string; name: string }[];
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -23,6 +24,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   availableModes,
   availableRoots,
   availableProgressions,
+  availableInstruments,
 }) => {
   return (
     <div style={styles.panel}>
@@ -71,6 +73,19 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             ))}
           </select>
         </div>
+      </Section>
+
+      {/* ─── Instrument ─── */}
+      <Section title="Instrument">
+        <select
+          value={state.instrument}
+          onChange={(e) => actions.setInstrument(e.target.value)}
+          style={{ ...styles.select, width: '100%' }}
+        >
+          {availableInstruments.map((inst) => (
+            <option key={inst.id} value={inst.id}>{inst.name}</option>
+          ))}
+        </select>
       </Section>
 
       {/* ─── Progression ─── */}

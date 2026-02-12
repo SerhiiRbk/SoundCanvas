@@ -23,6 +23,7 @@ const App: React.FC = () => {
     availableModes,
     availableRoots,
     availableProgressions,
+    availableInstruments,
   } = useGestureSymphony(canvasRef);
 
   // Set canvas to viewport size (1:1 pixel mapping)
@@ -71,6 +72,7 @@ const App: React.FC = () => {
           availableModes={availableModes}
           availableRoots={availableRoots}
           availableProgressions={availableProgressions}
+          availableInstruments={availableInstruments}
         />
       )}
 
