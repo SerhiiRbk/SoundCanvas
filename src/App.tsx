@@ -20,6 +20,9 @@ const App: React.FC = () => {
     state,
     actions,
     handleMouseMove,
+    handleMouseDown,
+    handleMouseUp,
+    handleContextMenu,
     availableModes,
     availableRoots,
     availableProgressions,
@@ -62,6 +65,9 @@ const App: React.FC = () => {
       <canvas
         ref={canvasRef}
         onMouseMove={handleMouseMove}
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
+        onContextMenu={handleContextMenu}
         style={styles.canvas}
       />
 

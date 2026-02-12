@@ -86,6 +86,65 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             <option key={inst.id} value={inst.id}>{inst.name}</option>
           ))}
         </select>
+
+        {/* ── Sampler toggle ── */}
+        <div style={styles.samplerRow}>
+          <label style={styles.checkboxLabel}>
+            <input
+              type="checkbox"
+              checked={state.sampler.enabled}
+              onChange={(e) => actions.setSamplerEnabled(e.target.checked)}
+            />
+            <span style={styles.checkboxText}>Use Samples</span>
+          </label>
+          <span style={styles.samplerStatus}>
+            {state.sampler.enabled
+              ? state.sampler.loading
+                ? 'Loading...'
+                : state.sampler.ready
+                  ? 'Active'
+                  : state.sampler.unavailable
+                    ? 'N/A'
+                    : ''
+              : ''}
+          </span>
+        </div>
+      </Section>
+
+      {/* ─── Ensemble Mix ─── */}
+      <Section title="Ensemble Mix">
+        <div style={styles.ensembleHint}>
+          Add up to 3 instruments (auto-voiced)
+        </div>
+        <div style={styles.ensembleList}>
+          {availableInstruments
+            .filter((inst) => inst.id !== state.instrument) // exclude lead
+            .map((inst) => {
+              const voice = state.ensemble.find((v) => v.instrumentId === inst.id);
+              const isActive = !!voice;
+              const isFull = !isActive && state.ensemble.length >= 3;
+              return (
+                <label
+                  key={inst.id}
+                  style={{
+                    ...styles.ensembleItem,
+                    ...(isFull ? styles.ensembleItemDisabled : {}),
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isActive}
+                    disabled={isFull}
+                    onChange={() => actions.toggleEnsembleVoice(inst.id)}
+                  />
+                  <span style={styles.ensembleName}>{inst.name}</span>
+                  {isActive && (
+                    <span style={styles.ensembleRole}>{voice!.roleLabel}</span>
+                  )}
+                </label>
+              );
+            })}
+        </div>
       </Section>
 
       {/* ─── Progression ─── */}
@@ -346,6 +405,17 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 600,
     color: '#a78bfa',
   },
+  samplerRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  samplerStatus: {
+    fontSize: 10,
+    fontStyle: 'italic' as const,
+    color: 'rgba(163, 130, 250, 0.7)',
+  },
   checkboxLabel: {
     display: 'flex',
     alignItems: 'center',
@@ -354,6 +424,46 @@ const styles: Record<string, React.CSSProperties> = {
   },
   checkboxText: {
     fontSize: 12,
+  },
+  ensembleHint: {
+    fontSize: 10,
+    color: 'rgba(255, 255, 255, 0.3)',
+    marginBottom: 6,
+    fontStyle: 'italic' as const,
+  },
+  ensembleList: {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    gap: 2,
+    maxHeight: 180,
+    overflowY: 'auto' as const,
+  },
+  ensembleItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '4px 6px',
+    borderRadius: 4,
+    cursor: 'pointer',
+    transition: 'background 0.1s',
+  },
+  ensembleItemDisabled: {
+    opacity: 0.35,
+    cursor: 'default',
+  },
+  ensembleName: {
+    flex: 1,
+    fontSize: 12,
+  },
+  ensembleRole: {
+    fontSize: 10,
+    fontWeight: 600,
+    color: '#a78bfa',
+    background: 'rgba(167, 139, 250, 0.12)',
+    padding: '2px 6px',
+    borderRadius: 4,
+    textTransform: 'uppercase' as const,
+    letterSpacing: '0.04em',
   },
   debug: {
     display: 'flex',

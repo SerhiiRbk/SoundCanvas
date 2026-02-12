@@ -9,6 +9,7 @@
 import * as Tone from 'tone';
 import { FFT_SIZE, SYNTH_MAX_POLYPHONY } from '../config';
 import { midiToNoteName } from '../music/scale';
+import { getSampleDef } from './sampleLibrary';
 import type { AudioFrameData } from '../composer/composerTypes';
 
 /* ================================================================
@@ -259,13 +260,140 @@ export const INSTRUMENT_PRESETS: InstrumentPreset[] = [
 ];
 
 /* ================================================================
+   Ensemble — types & note-calculation helpers
+   ================================================================ */
+
+export type EnsembleRole = 'harmony' | 'arpeggio' | 'counter';
+
+export const ENSEMBLE_ROLES: EnsembleRole[] = ['harmony', 'arpeggio', 'counter'];
+export const ENSEMBLE_ROLE_LABELS: Record<EnsembleRole, string> = {
+  harmony: 'Harmony', arpeggio: 'Arpeggio', counter: 'Counter',
+};
+/** dB offsets relative to lead for a balanced mix */
+const ROLE_VOLUME: Record<EnsembleRole, number> = {
+  harmony: -4, arpeggio: -7, counter: -5,
+};
+/** velocity multipliers */
+const ROLE_VEL: Record<EnsembleRole, number> = {
+  harmony: 0.80, arpeggio: 0.60, counter: 0.70,
+};
+/** duration multipliers */
+const ROLE_DUR: Record<EnsembleRole, number> = {
+  harmony: 1.0, arpeggio: 0.55, counter: 0.9,
+};
+
+interface MusicalCtx {
+  chordPCs: Set<number>;
+  scalePCs: Set<number>;
+  root: number;
+}
+
+interface EnsembleVoiceInst {
+  instrumentId: string;
+  role: EnsembleRole;
+  preset: InstrumentPreset;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  synth: Tone.PolySynth<any>;
+  vibrato: Tone.Vibrato | null;
+  gain: Tone.Gain;
+}
+
+/* ── Pure helpers for voice-leading ── */
+
+function nearestChordToneAbove(pitch: number, chordPCs: Set<number>, minSemi: number, maxSemi: number): number | null {
+  let best: number | null = null;
+  let bestD = Infinity;
+  for (let off = minSemi; off <= maxSemi; off++) {
+    if (chordPCs.has((pitch + off) % 12)) {
+      const d = Math.abs(off - 4); // prefer ~major 3rd distance
+      if (d < bestD) { bestD = d; best = pitch + off; }
+    }
+  }
+  return best;
+}
+
+function snapToScale(pitch: number, scalePCs: Set<number>): number {
+  const pc = ((pitch % 12) + 12) % 12;
+  if (scalePCs.has(pc)) return pitch;
+  for (let d = 1; d <= 2; d++) {
+    if (scalePCs.has((pc + d) % 12)) return pitch + d;
+    if (scalePCs.has(((pc - d) + 12) % 12)) return pitch - d;
+  }
+  return pitch;
+}
+
+function calcHarmony(lead: number, ctx: MusicalCtx): number {
+  // Prefer chord tone 3-7 semitones above lead (thirds / fifths)
+  const ct = nearestChordToneAbove(lead, ctx.chordPCs, 3, 7);
+  if (ct !== null) return snapToScale(ct, ctx.scalePCs);
+  // Fallback: scale tone a 4th above
+  return snapToScale(lead + 4, ctx.scalePCs);
+}
+
+function calcArpeggio(lead: number, ctx: MusicalCtx, idx: number): number {
+  const tones = Array.from(ctx.chordPCs).sort((a, b) => a - b);
+  if (tones.length === 0) return lead;
+  const pc = tones[idx % tones.length];
+  const oct = Math.floor(lead / 12);
+  let p = pc + oct * 12;
+  if (p > lead + 5) p -= 12;
+  if (p < lead - 14) p += 12;
+  return p;
+}
+
+function calcCounter(lead: number, prevLead: number, ctx: MusicalCtx): number {
+  // Contrary motion: move opposite direction toward nearest chord tone
+  const dir = lead >= prevLead ? -1 : 1;
+  const step = Math.max(2, Math.abs(lead - prevLead));
+  const target = lead + dir * step;
+  // Snap to nearest chord tone
+  let best = target;
+  let bestD = Infinity;
+  for (const pc of ctx.chordPCs) {
+    const oct = Math.floor(target / 12);
+    for (const o of [oct - 1, oct, oct + 1]) {
+      const c = pc + o * 12;
+      const d = Math.abs(c - target);
+      if (d < bestD) { bestD = d; best = c; }
+    }
+  }
+  return snapToScale(best, ctx.scalePCs);
+}
+
+/* ================================================================
    SynthEngine
    ================================================================ */
+
+export interface SamplerState {
+  enabled: boolean;
+  loading: boolean;
+  ready: boolean;
+  unavailable: boolean;
+}
 
 export class SynthEngine {
   /* ── Lead voice (rebuilt per instrument) ── */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private leadSynth: Tone.PolySynth<any> | null = null;
+
+  /* ── Sampler (real instrument samples) ── */
+  private sampler: Tone.Sampler | null = null;
+  private _samplerEnabled = false;
+  private _samplerLoading = false;
+  private _samplerReady = false;
+  private _samplerUnavailable = false;
+
+  /* ── Ensemble voices ── */
+  private ensembleVoices: EnsembleVoiceInst[] = [];
+  private ensembleBus: Tone.Gain | null = null;
+  private ensembleReverb: Tone.Reverb | null = null;
+  private arpeggioIdx = 0;
+  private prevLeadPitch = 60;
+  private musicalCtx: MusicalCtx = {
+    chordPCs: new Set([0, 4, 7]),
+    scalePCs: new Set([0, 2, 4, 5, 7, 9, 11]),
+    root: 0,
+  };
 
   /* ── Per-instrument FX (disposed on switch) ── */
   private vibrato: Tone.Vibrato | null = null;
@@ -351,6 +479,12 @@ export class SynthEngine {
     });
     this.bassSynth.connect(this.masterGain);
 
+    // Ensemble bus: all ensemble voices → ensembleBus → ensembleReverb → masterGain
+    this.ensembleBus = new Tone.Gain(1);
+    this.ensembleReverb = new Tone.Reverb({ decay: 2.5, wet: 0.35 });
+    this.ensembleBus.connect(this.ensembleReverb);
+    this.ensembleReverb.connect(this.masterGain);
+
     this.initialized = true;
   }
 
@@ -383,10 +517,203 @@ export class SynthEngine {
     if (this.breathFilter) {
       this.breathFilter.frequency.rampTo(preset.breathFilterFreq, 0.05);
     }
+
+    // 6. If sampler mode is enabled, load sampler for new instrument
+    if (this._samplerEnabled) {
+      this.loadSamplerForCurrentInstrument();
+    }
   }
 
   getInstrumentId(): string {
     return this.currentPreset.id;
+  }
+
+  /* ────────────────────────────────────────────
+     Sampler (real audio samples)
+     ──────────────────────────────────────────── */
+
+  /** Toggle sampler mode on/off. When on, real samples override synth. */
+  setSamplerEnabled(enabled: boolean): void {
+    this._samplerEnabled = enabled;
+    if (enabled) {
+      this.loadSamplerForCurrentInstrument();
+    } else {
+      this.disposeSampler();
+      this._samplerReady = false;
+      this._samplerLoading = false;
+      this._samplerUnavailable = false;
+    }
+  }
+
+  getSamplerState(): SamplerState {
+    return {
+      enabled: this._samplerEnabled,
+      loading: this._samplerLoading,
+      ready: this._samplerReady,
+      unavailable: this._samplerUnavailable,
+    };
+  }
+
+  private loadSamplerForCurrentInstrument(): void {
+    // Dispose old sampler first
+    this.disposeSampler();
+
+    const def = getSampleDef(this.currentPreset.id);
+    if (!def) {
+      this._samplerUnavailable = true;
+      this._samplerLoading = false;
+      this._samplerReady = false;
+      return;
+    }
+
+    this._samplerUnavailable = false;
+    this._samplerLoading = true;
+    this._samplerReady = false;
+
+    this.sampler = new Tone.Sampler({
+      urls: def.urls,
+      baseUrl: def.baseUrl,
+      release: def.release,
+      onload: () => {
+        this._samplerLoading = false;
+        this._samplerReady = true;
+      },
+      onerror: (err: Error) => {
+        console.warn('[SynthEngine] Sampler load failed, falling back to synth:', err);
+        this._samplerLoading = false;
+        this._samplerReady = false;
+      },
+    });
+
+    // Sampler connects directly to filter (bypasses vibrato/chorus —
+    // the recorded samples already carry the instrument's natural timbre)
+    this.sampler.connect(this.filter!);
+  }
+
+  private disposeSampler(): void {
+    if (this.sampler) {
+      this.sampler.disconnect();
+      this.sampler.dispose();
+      this.sampler = null;
+    }
+  }
+
+  /** True when sampler should be used for playback */
+  private get useSampler(): boolean {
+    return this._samplerEnabled && this._samplerReady && this.sampler !== null;
+  }
+
+  /* ────────────────────────────────────────────
+     Ensemble
+     ──────────────────────────────────────────── */
+
+  /**
+   * Set which instruments participate in the ensemble.
+   * Roles are auto-assigned in order: harmony → arpeggio → counter.
+   * Max 3 additional voices.
+   */
+  setEnsemble(instrumentIds: string[]): void {
+    if (!this.initialized) return;
+
+    // Dispose old voices
+    this.disposeAllEnsembleVoices();
+
+    const ids = instrumentIds.slice(0, 3);
+    for (let i = 0; i < ids.length; i++) {
+      const preset = INSTRUMENT_PRESETS.find((p) => p.id === ids[i]);
+      if (!preset) continue;
+      const role = ENSEMBLE_ROLES[i];
+      this.createEnsembleVoice(preset, role);
+    }
+  }
+
+  getEnsembleVoices(): { instrumentId: string; role: EnsembleRole }[] {
+    return this.ensembleVoices.map((v) => ({
+      instrumentId: v.instrumentId,
+      role: v.role,
+    }));
+  }
+
+  /** Update chord / scale context used for voice-leading calculations */
+  setMusicalContext(chordPCs: Set<number>, scalePCs: Set<number>, root: number): void {
+    this.musicalCtx = { chordPCs, scalePCs, root };
+  }
+
+  private createEnsembleVoice(preset: InstrumentPreset, role: EnsembleRole): void {
+    // Build synth from preset (reuse buildLeadVoice logic)
+    const saved = this.leadSynth;
+    this.buildLeadVoice(preset);
+    const synth = this.leadSynth!;
+    this.leadSynth = saved;
+
+    // Optional vibrato
+    let vib: Tone.Vibrato | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let last: any = synth;
+    if (preset.vibratoDepth > 0 && preset.vibratoRate > 0) {
+      vib = new Tone.Vibrato({ frequency: preset.vibratoRate, depth: preset.vibratoDepth, wet: 1 });
+      last.connect(vib);
+      last = vib;
+    }
+
+    // Per-voice gain (volume offset for mix balance)
+    const gain = new Tone.Gain(Tone.dbToGain(ROLE_VOLUME[role]));
+    last.connect(gain);
+    gain.connect(this.ensembleBus!);
+
+    this.ensembleVoices.push({
+      instrumentId: preset.id,
+      role,
+      preset,
+      synth,
+      vibrato: vib,
+      gain,
+    });
+  }
+
+  private disposeAllEnsembleVoices(): void {
+    for (const v of this.ensembleVoices) {
+      try { v.synth.releaseAll(); } catch { /* */ }
+      v.synth.disconnect();
+      v.synth.dispose();
+      v.vibrato?.disconnect();
+      v.vibrato?.dispose();
+      v.gain.disconnect();
+      v.gain.dispose();
+    }
+    this.ensembleVoices = [];
+    this.arpeggioIdx = 0;
+  }
+
+  /** Play ensemble voices alongside the lead */
+  private playEnsembleVoices(leadPitch: number, velocity: number, duration: number): void {
+    if (this.ensembleVoices.length === 0) return;
+    const ctx = this.musicalCtx;
+
+    for (const v of this.ensembleVoices) {
+      let pitch: number;
+      switch (v.role) {
+        case 'harmony':
+          pitch = calcHarmony(leadPitch, ctx);
+          break;
+        case 'arpeggio':
+          pitch = calcArpeggio(leadPitch, ctx, this.arpeggioIdx);
+          break;
+        case 'counter':
+          pitch = calcCounter(leadPitch, this.prevLeadPitch, ctx);
+          break;
+      }
+
+      // Clamp to playable MIDI range
+      pitch = Math.max(36, Math.min(96, pitch));
+
+      const vel = Math.max(0, Math.min(1, (velocity / 127) * ROLE_VEL[v.role]));
+      const dur = duration * ROLE_DUR[v.role];
+      const note = midiToNoteName(pitch);
+      v.synth.triggerAttackRelease(note, dur, undefined, vel);
+    }
+
+    this.arpeggioIdx++;
   }
 
   /* ────────────────────────────────────────────
@@ -499,17 +826,25 @@ export class SynthEngine {
      ──────────────────────────────────────────── */
 
   playNote(pitch: number, velocity: number, duration = 0.2): void {
-    if (!this.leadSynth || !this.initialized) return;
+    if (!this.initialized) return;
     const note = midiToNoteName(pitch);
     const vel = Math.max(0, Math.min(1, velocity / 127));
-    this.leadSynth.triggerAttackRelease(note, duration, undefined, vel);
 
-    // Breath noise for wind instruments
-    if (this.currentPreset.breathiness > 0 && this.breathSynth) {
-      const breathVol = -30 + this.currentPreset.breathiness * 16; // -30 → -14 dB
-      this.breathSynth.volume.rampTo(breathVol, 0.01);
-      this.breathSynth.triggerAttackRelease(duration);
+    if (this.useSampler) {
+      this.sampler!.triggerAttackRelease(note, duration, undefined, vel);
+    } else if (this.leadSynth) {
+      this.leadSynth.triggerAttackRelease(note, duration, undefined, vel);
+
+      if (this.currentPreset.breathiness > 0 && this.breathSynth) {
+        const breathVol = -30 + this.currentPreset.breathiness * 16;
+        this.breathSynth.volume.rampTo(breathVol, 0.01);
+        this.breathSynth.triggerAttackRelease(duration);
+      }
     }
+
+    // Ensemble voices play harmonically derived notes
+    this.playEnsembleVoices(pitch, velocity, duration);
+    this.prevLeadPitch = pitch;
   }
 
   playChord(pitches: number[], duration = 2): void {
@@ -575,6 +910,10 @@ export class SynthEngine {
 
   dispose(): void {
     this.teardownLeadChain();
+    this.disposeSampler();
+    this.disposeAllEnsembleVoices();
+    this.ensembleBus?.dispose();
+    this.ensembleReverb?.dispose();
     this.padSynth?.dispose();
     this.bassSynth?.dispose();
     this.breathSynth?.dispose();
