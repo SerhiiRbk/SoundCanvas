@@ -1,26 +1,38 @@
 /**
- * Splash Screen — shown before audio context is started (browser policy).
+ * Splash Screen — shown before audio context is started.
+ *
+ * Features a scene selector grid so users start with a curated preset.
  */
 
 import React from 'react';
+import { SceneSelector } from './SceneSelector';
+import type { ScenePreset } from '../config/scenePresets';
 
 interface SplashScreenProps {
   onStart: () => void;
+  onStartWithScene: (preset: ScenePreset) => void;
 }
 
-export const SplashScreen: React.FC<SplashScreenProps> = ({ onStart }) => {
+export const SplashScreen: React.FC<SplashScreenProps> = ({ onStart, onStartWithScene }) => {
   return (
-    <div style={styles.container} onClick={onStart}>
+    <div style={styles.container}>
       <div style={styles.content}>
         <h1 style={styles.title}>Gesture Symphony</h1>
         <p style={styles.version}>2.0</p>
         <p style={styles.description}>
           Move your mouse to create music and light.
         </p>
-        <div style={styles.hint}>
-          <div style={styles.ring} />
-          <span>Click anywhere to begin</span>
-        </div>
+
+        {/* Scene presets */}
+        <p style={styles.pickLabel}>Pick a scene to begin</p>
+        <SceneSelector onSelect={onStartWithScene} />
+
+        {/* Fallback: start without preset */}
+        <button style={styles.freeplayBtn} onClick={onStart}>
+          or start with default settings
+        </button>
+
+        {/* Instructions */}
         <div style={styles.instructions}>
           <div style={styles.instructionItem}>
             <span style={styles.instructionKey}>X axis</span>
@@ -35,8 +47,8 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onStart }) => {
             <span style={styles.instructionValue}>Volume & particles</span>
           </div>
           <div style={styles.instructionItem}>
-            <span style={styles.instructionKey}>Circles</span>
-            <span style={styles.instructionValue}>Arpeggio mode</span>
+            <span style={styles.instructionKey}>Touch</span>
+            <span style={styles.instructionValue}>2 fingers = chord strum</span>
           </div>
         </div>
       </div>
@@ -52,14 +64,18 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    cursor: 'pointer',
     zIndex: 2000,
+    overflowY: 'auto',
+    padding: '40px 0',
   },
   content: {
-    textAlign: 'center' as const,
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
     color: '#e0e0e0',
     fontFamily: "'Inter', -apple-system, sans-serif",
-    maxWidth: 400,
+    maxWidth: 720,
+    width: '100%',
   },
   title: {
     fontSize: 42,
@@ -79,31 +95,37 @@ const styles: Record<string, React.CSSProperties> = {
   description: {
     fontSize: 16,
     color: 'rgba(255, 255, 255, 0.5)',
-    marginTop: 24,
+    marginTop: 16,
     lineHeight: 1.5,
   },
-  hint: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-    marginTop: 40,
-    fontSize: 14,
+  pickLabel: {
+    fontSize: 13,
     color: 'rgba(255, 255, 255, 0.35)',
-    animation: 'pulse 2s ease-in-out infinite',
+    marginTop: 32,
+    marginBottom: 16,
+    fontWeight: 500,
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
   },
-  ring: {
-    width: 12,
-    height: 12,
-    borderRadius: '50%',
-    border: '2px solid rgba(99, 102, 241, 0.6)',
-    animation: 'pulse 2s ease-in-out infinite',
+  freeplayBtn: {
+    marginTop: 20,
+    padding: '8px 20px',
+    background: 'transparent',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: 20,
+    color: 'rgba(255, 255, 255, 0.35)',
+    fontSize: 12,
+    fontFamily: "'Inter', -apple-system, sans-serif",
+    cursor: 'pointer',
+    transition: 'all 0.15s',
   },
   instructions: {
-    marginTop: 48,
+    marginTop: 40,
     display: 'flex',
-    flexDirection: 'column' as const,
+    flexDirection: 'column',
     gap: 8,
+    width: '100%',
+    maxWidth: 340,
   },
   instructionItem: {
     display: 'flex',

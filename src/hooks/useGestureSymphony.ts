@@ -8,6 +8,7 @@
 import { useRef, useCallback, useEffect, useState } from 'react';
 import { GestureAnalyzer } from '../gesture/gestureAnalyzer';
 import { SynthEngine, INSTRUMENT_PRESETS, ENSEMBLE_ROLES, ENSEMBLE_ROLE_LABELS, type SamplerState, type EnsembleRole } from '../audio/synthEngine';
+import { RecordingEngine, type RecordingState } from '../audio/recordingEngine';
 import { LoopEngine } from '../audio/loopEngine';
 import { VisualEngine } from '../visual/visualEngine';
 import { HarmonyEngine, PROGRESSIONS } from '../music/harmonyEngine';
@@ -19,6 +20,7 @@ import {
   QUANTIZE_DIVISION,
 } from '../config';
 import type { VisualModeName } from '../composer/composerTypes';
+import type { ScenePreset } from '../config/scenePresets';
 
 export interface EnsembleVoiceInfo {
   instrumentId: string;
@@ -44,6 +46,10 @@ export interface GestureSymphonyState {
   currentPitch: number;
   loopState: string;
   particleCount: number;
+  recording: RecordingState;
+  recordingElapsed: number;
+  recordingMaxDuration: number;
+  recordingBlob: Blob | null;
 }
 
 export interface GestureSymphonyActions {
@@ -62,6 +68,11 @@ export interface GestureSymphonyActions {
   stopLoop: () => void;
   clearLoop: () => void;
   overdubLoop: () => void;
+  applyScene: (preset: ScenePreset) => void;
+  startRecording: () => void;
+  stopRecording: () => void;
+  setRecordingDuration: (seconds: number) => void;
+  dismissRecording: () => void;
 }
 
 export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
@@ -94,6 +105,10 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
     currentPitch: 60,
     loopState: 'idle',
     particleCount: 0,
+    recording: 'idle' as RecordingState,
+    recordingElapsed: 0,
+    recordingMaxDuration: 30,
+    recordingBlob: null,
   });
 
   const stateRef = useRef(state);
@@ -101,6 +116,10 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
 
   // Ensemble instrument IDs (mutable, synced to state)
   const ensembleIdsRef = useRef<string[]>([]);
+
+  // Recording engine
+  const recorderRef = useRef<RecordingEngine | null>(null);
+  const recElapsedRef = useRef<number>(0);
 
   // ─── Initialize ───
   const initialize = useCallback(async () => {
@@ -143,6 +162,21 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
     visualRef.current = visual;
     harmonyRef.current = harmony;
 
+    // Recording engine
+    const recorder = new RecordingEngine();
+    recorder.setOnStateChange((s) => {
+      setState((prev) => ({ ...prev, recording: s }));
+      if (s === 'recording') {
+        visual.setWatermark(true);
+      } else {
+        visual.setWatermark(false);
+      }
+    });
+    recorder.setOnComplete((blob) => {
+      setState((prev) => ({ ...prev, recordingBlob: blob }));
+    });
+    recorderRef.current = recorder;
+
     visual.setPreset('cinematic');
     visual.start();
 
@@ -168,10 +202,13 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
 
       const debug = visual.getDebugInfo();
       const samplerState = synth.getSamplerState();
+      const recElapsed = recorderRef.current?.getDuration() ?? 0;
+      recElapsedRef.current = recElapsed;
       setState((s) => ({
         ...s,
         particleCount: debug.particles,
         sampler: samplerState,
+        recordingElapsed: recElapsed,
       }));
 
       audioFrameIdRef.current = requestAnimationFrame(update);
@@ -498,6 +535,85 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
     setState((s) => ({ ...s, ensemble: buildEnsembleInfo(newIds) }));
   }, [buildEnsembleInfo]);
 
+  // ─── Scene Presets ───
+  const applyScene = useCallback((preset: ScenePreset) => {
+    // Apply instrument
+    synthRef.current?.setInstrument(preset.instrument);
+
+    // Apply visual mode
+    visualRef.current?.setPreset(preset.visualMode);
+
+    // Apply scale / root
+    const scale = buildScale(preset.rootNote, preset.mode);
+    harmonyRef.current?.setScale(scale);
+
+    // Apply progression
+    harmonyRef.current?.setProgression(preset.progression);
+
+    // Apply BPM
+    synthRef.current?.setBPM(preset.bpm);
+
+    // Apply melodic stability
+    visualRef.current?.setMelodicStability(preset.melodicStability);
+
+    // Apply ensemble
+    ensembleIdsRef.current = [];
+    synthRef.current?.setEnsemble([]);
+    for (const eid of preset.ensemble) {
+      if (ensembleIdsRef.current.length < 3) {
+        ensembleIdsRef.current.push(eid);
+      }
+    }
+    synthRef.current?.setEnsemble(ensembleIdsRef.current);
+
+    // Apply sampler
+    synthRef.current?.setSamplerEnabled(preset.samplerEnabled);
+
+    // Update musical context
+    const chord = harmonyRef.current?.getCurrentChord();
+    if (chord) {
+      synthRef.current?.setMusicalContext(
+        chord.pitchClasses as Set<number>,
+        scale.pitchClasses as Set<number>,
+        chord.root,
+      );
+    }
+
+    setState((s) => ({
+      ...s,
+      instrument: preset.instrument,
+      visualMode: preset.visualMode,
+      rootNote: preset.rootNote,
+      mode: preset.mode,
+      progression: preset.progression,
+      bpm: preset.bpm,
+      melodicStability: preset.melodicStability,
+      ensemble: buildEnsembleInfo(ensembleIdsRef.current),
+      currentChord: chord?.name ?? s.currentChord,
+    }));
+  }, [buildEnsembleInfo]);
+
+  // ─── Recording ───
+  const startRecording = useCallback(() => {
+    const canvas = canvasRef.current;
+    const audioDest = synthRef.current?.getAudioDestination();
+    if (!canvas || !audioDest || !recorderRef.current) return;
+    recorderRef.current.startRecording(canvas, audioDest);
+  }, [canvasRef]);
+
+  const stopRecording = useCallback(() => {
+    recorderRef.current?.stopRecording();
+  }, []);
+
+  const setRecordingDuration = useCallback((seconds: number) => {
+    recorderRef.current?.setMaxDuration(seconds);
+    setState((s) => ({ ...s, recordingMaxDuration: seconds }));
+  }, []);
+
+  const dismissRecording = useCallback(() => {
+    setState((s) => ({ ...s, recordingBlob: null }));
+  }, []);
+
   const setVisualMode = useCallback((mode: VisualModeName) => {
     visualRef.current?.setPreset(mode);
     setState((s) => ({ ...s, visualMode: mode }));
@@ -535,11 +651,126 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
     setState((s) => ({ ...s, loopState: 'overdubbing' }));
   }, []);
 
+  // ─── Touch handlers (maps touch → same gesture pipeline as mouse) ───
+  const touchIdRef = useRef<number | null>(null);
+
+  const canvasXYTouch = useCallback(
+    (touch: React.Touch) => {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return { x: 0, y: 0 };
+      return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+    },
+    [canvasRef],
+  );
+
+  const processInputAt = useCallback(
+    (x: number, y: number, isAccent: boolean) => {
+      if (!gestureRef.current || !synthRef.current || !visualRef.current || !harmonyRef.current) return;
+
+      const now = performance.now();
+      const gestureState = gestureRef.current.processMouseEvent(x, y, now);
+      const rawMapping = gestureRef.current.mapToRaw(gestureState);
+
+      const { bpm, melodicStability } = stateRef.current;
+      const sixteenthDuration = (60 / bpm) / (QUANTIZE_DIVISION / 4);
+      const sixteenthMs = sixteenthDuration * 1000;
+
+      if (now - lastQuantizedTimeRef.current < sixteenthMs) {
+        visualRef.current.updateCursor({ x, y, velocity: gestureState.velocity, pitch: prevPitchRef.current });
+        return;
+      }
+      lastQuantizedTimeRef.current = now;
+
+      // Beat/bar tracking
+      beatCounterRef.current++;
+      if (beatCounterRef.current >= QUANTIZE_DIVISION) {
+        beatCounterRef.current = 0;
+        barCounterRef.current++;
+        const chordChanged = harmonyRef.current.advanceBar();
+        if (chordChanged) {
+          const chord = harmonyRef.current.getCurrentChord();
+          const chordPitches = Array.from(chord.pitchClasses).map((pc) => pc + 60);
+          synthRef.current.playChord(chordPitches, sixteenthDuration * QUANTIZE_DIVISION);
+          synthRef.current.playBass(chord.root + 36, sixteenthDuration * QUANTIZE_DIVISION);
+          const scale = buildScale(stateRef.current.rootNote, stateRef.current.mode);
+          synthRef.current.setMusicalContext(chord.pitchClasses as Set<number>, scale.pitchClasses as Set<number>, chord.root);
+          setState((s) => ({ ...s, currentChord: chord.name }));
+        }
+      }
+
+      const scale = buildScale(stateRef.current.rootNote, stateRef.current.mode);
+      const chord = harmonyRef.current.getCurrentChord();
+      const result = melodicCorrection({ pRaw: rawMapping.pRaw, pPrev: prevPitchRef.current, pPrevPrev: prevPrevPitchRef.current, scale, chord, m: melodicStability });
+      const pitch = result.selectedPitch;
+      const velMul = isAccent ? 1.3 : 1;
+      const velocity = Math.min(127, Math.round(rawMapping.midiVelocity * velMul));
+      const duration = sixteenthDuration * (1 + Math.random() * 0.5);
+
+      prevPrevPitchRef.current = prevPitchRef.current;
+      prevPitchRef.current = pitch;
+
+      synthRef.current.playNote(pitch, velocity, duration);
+      synthRef.current.setFilterCutoff(rawMapping.filterCutoff);
+
+      visualRef.current.updateCursor({ x, y, velocity: gestureState.velocity, pitch });
+      visualRef.current.onNoteOn(x, y, pitch, velocity);
+
+      if (loopRef.current) loopRef.current.addNote(pitch, velocity, duration);
+      setState((s) => ({ ...s, currentPitch: pitch }));
+    },
+    [canvasRef],
+  );
+
+  const handleTouchStart = useCallback(
+    (e: React.TouchEvent<HTMLCanvasElement>) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      if (!touch) return;
+      touchIdRef.current = touch.identifier;
+      const { x, y } = canvasXYTouch(touch);
+      processInputAt(x, y, true);
+
+      // Second finger = chord strum
+      if (e.touches.length >= 2 && synthRef.current && harmonyRef.current) {
+        const chord = harmonyRef.current.getCurrentChord();
+        const chordPitches = Array.from(chord.pitchClasses).map((pc) => pc + 60);
+        const { bpm } = stateRef.current;
+        const dur = (60 / bpm) / (QUANTIZE_DIVISION / 4) * QUANTIZE_DIVISION;
+        synthRef.current.playChord(chordPitches, dur);
+        synthRef.current.playBass(chord.root + 36, dur);
+      }
+    },
+    [canvasXYTouch, processInputAt],
+  );
+
+  const handleTouchMove = useCallback(
+    (e: React.TouchEvent<HTMLCanvasElement>) => {
+      e.preventDefault();
+      for (let i = 0; i < e.touches.length; i++) {
+        if (e.touches[i].identifier === touchIdRef.current) {
+          const { x, y } = canvasXYTouch(e.touches[i]);
+          processInputAt(x, y, false);
+          break;
+        }
+      }
+    },
+    [canvasXYTouch, processInputAt],
+  );
+
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent<HTMLCanvasElement>) => {
+      e.preventDefault();
+      touchIdRef.current = null;
+    },
+    [],
+  );
+
   // ─── Cleanup ───
   useEffect(() => {
     return () => {
       visualRef.current?.stop();
       synthRef.current?.dispose();
+      recorderRef.current?.dispose();
       cancelAnimationFrame(audioFrameIdRef.current);
     };
   }, []);
@@ -579,11 +810,19 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
       stopLoop,
       clearLoop,
       overdubLoop,
+      applyScene,
+      startRecording,
+      stopRecording,
+      setRecordingDuration,
+      dismissRecording,
     } satisfies GestureSymphonyActions,
     handleMouseMove,
     handleMouseDown,
     handleMouseUp,
     handleContextMenu,
+    handleTouchStart,
+    handleTouchMove,
+    handleTouchEnd,
     availableModes: getAvailableModes(),
     availableRoots: getAvailableRoots(),
     availableProgressions: Object.entries(PROGRESSIONS).map(([key, val]) => ({

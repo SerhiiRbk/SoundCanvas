@@ -1,20 +1,25 @@
 /**
  * Gesture Symphony 2.0 — Main Application
  *
- * gesture → melodicCorrection → harmonyEngine
- *   → synthEngine → visualEngine
- *   → optional AI Composer
+ * gesture -> melodicCorrection -> harmonyEngine
+ *   -> synthEngine -> visualEngine
+ *   -> optional AI Composer
  */
 
 import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { useGestureSymphony } from './hooks/useGestureSymphony';
 import { ControlPanel } from './components/ControlPanel';
 import { SplashScreen } from './components/SplashScreen';
+import { RecordingHUD } from './components/RecordingHUD';
+import { ShareOverlay } from './components/ShareOverlay';
+import type { ScenePreset } from './config/scenePresets';
 
 const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [started, setStarted] = useState(false);
   const [panelVisible, setPanelVisible] = useState(true);
+  const [performanceMode, setPerformanceMode] = useState(false);
+  const pendingSceneRef = useRef<ScenePreset | null>(null);
 
   const {
     state,
@@ -23,6 +28,9 @@ const App: React.FC = () => {
     handleMouseDown,
     handleMouseUp,
     handleContextMenu,
+    handleTouchStart,
+    handleTouchMove,
+    handleTouchEnd,
     availableModes,
     availableRoots,
     availableProgressions,
@@ -39,25 +47,51 @@ const App: React.FC = () => {
 
   const handleStart = useCallback(async () => {
     setStarted(true);
-    // Small delay to ensure canvas is mounted
     requestAnimationFrame(async () => {
       await actions.initialize();
+      // Apply pending scene preset after init
+      if (pendingSceneRef.current) {
+        // Small delay to ensure engines are wired
+        setTimeout(() => {
+          if (pendingSceneRef.current) {
+            actions.applyScene(pendingSceneRef.current);
+            pendingSceneRef.current = null;
+          }
+        }, 100);
+      }
     });
   }, [actions]);
 
-  // Toggle panel with 'H' key
+  const handleStartWithScene = useCallback((preset: ScenePreset) => {
+    pendingSceneRef.current = preset;
+    handleStart();
+  }, [handleStart]);
+
+  // Keyboard shortcuts: H = panel, P = performance mode
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'h' || e.key === 'H') {
         setPanelVisible((v) => !v);
+      }
+      if (e.key === 'p' || e.key === 'P') {
+        setPerformanceMode((v) => !v);
       }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, []);
 
+  // In performance mode: hide panel
+  const showPanel = panelVisible && !performanceMode;
+  const showHints = !performanceMode;
+
   if (!started) {
-    return <SplashScreen onStart={handleStart} />;
+    return (
+      <SplashScreen
+        onStart={handleStart}
+        onStartWithScene={handleStartWithScene}
+      />
+    );
   }
 
   return (
@@ -68,10 +102,40 @@ const App: React.FC = () => {
         onMouseDown={handleMouseDown}
         onMouseUp={handleMouseUp}
         onContextMenu={handleContextMenu}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
         style={styles.canvas}
       />
 
-      {panelVisible && (
+      {/* Recording HUD (always visible when initialized) */}
+      {state.isInitialized && (
+        <RecordingHUD
+          recordingState={state.recording}
+          elapsed={state.recordingElapsed}
+          maxDuration={state.recordingMaxDuration}
+          onStartRecording={actions.startRecording}
+          onStopRecording={actions.stopRecording}
+          onSetDuration={actions.setRecordingDuration}
+          onCountdownComplete={actions.startRecording}
+        />
+      )}
+
+      {/* Share overlay (after recording completes) */}
+      {state.recordingBlob && (
+        <ShareOverlay
+          blob={state.recordingBlob}
+          onNewRecording={() => {
+            actions.dismissRecording();
+          }}
+          onClose={() => {
+            actions.dismissRecording();
+          }}
+        />
+      )}
+
+      {/* Control Panel */}
+      {showPanel && (
         <ControlPanel
           state={state}
           actions={actions}
@@ -79,13 +143,19 @@ const App: React.FC = () => {
           availableRoots={availableRoots}
           availableProgressions={availableProgressions}
           availableInstruments={availableInstruments}
+          performanceMode={performanceMode}
+          onTogglePerformanceMode={() => setPerformanceMode((v) => !v)}
         />
       )}
 
-      {/* Keyboard hint */}
-      <div style={styles.keyHint}>
-        Press <kbd style={styles.kbd}>H</kbd> to {panelVisible ? 'hide' : 'show'} controls
-      </div>
+      {/* Keyboard hints */}
+      {showHints && (
+        <div style={styles.keyHint}>
+          <kbd style={styles.kbd}>H</kbd> controls
+          {' '}
+          <kbd style={styles.kbd}>P</kbd> performance mode
+        </div>
+      )}
     </div>
   );
 };
@@ -97,11 +167,13 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
     background: '#050510',
     cursor: 'none',
+    touchAction: 'none', // prevent default touch gestures
   },
   canvas: {
     display: 'block',
     width: '100vw',
     height: '100vh',
+    touchAction: 'none',
   },
   keyHint: {
     position: 'fixed',

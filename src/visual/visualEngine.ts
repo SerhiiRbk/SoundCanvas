@@ -1,22 +1,23 @@
 /**
- * Visual Engine v3 — clean rewrite.
+ * Visual Engine v4 — Electric Flower + Radial Blur.
  *
- * Principles:
- *  - No DPR scaling (1:1 canvas pixels = CSS pixels)
- *  - No post-processing passes
- *  - No shadowBlur (kills FPS)
- *  - Every effect draws at exact mouse coordinates
- *  - Simple, fast, guaranteed visible
- *
- * Layers:
+ * Render pipeline:
  *  1. Background (solid dark)
- *  2. Trail (point cloud behind cursor)
- *  3. Particles (burst on noteOn)
- *  4. Cursor dot (radial gradient at mouse pos)
+ *  2. Flower pattern (generative rotating spirals, additive)
+ *  3. Ambient glow at cursor
+ *  4. Trail (point cloud behind cursor)
+ *  5. Particles (burst on noteOn)
+ *  ── Post-processing ──
+ *  6. Radial blur (zoom streaks from cursor center)
+ *  7. Bloom (multi-pass soft glow)
+ *  ── After post-processing ──
+ *  8. Cursor dot (stays sharp on top)
  */
 
 import { TrailRenderer } from './trailRenderer';
 import { ParticleSystem } from './particleSystem';
+import { FlowerPattern } from './flowerPattern';
+import { PostProcessing } from './postProcessing';
 import { pitchToHue, hslToString } from './colorMapping';
 import {
   BACKGROUND_COLOR,
@@ -35,6 +36,8 @@ export class VisualEngine {
   private ctx: CanvasRenderingContext2D;
   private trail: TrailRenderer;
   private particles: ParticleSystem;
+  private flower: FlowerPattern;
+  private postFx: PostProcessing;
 
   // State
   private cursor: CursorState = { x: -100, y: -100, velocity: 0, pitch: 60 };
@@ -56,11 +59,17 @@ export class VisualEngine {
   private reelX = 0;
   private reelW = 0;
 
+  // Watermark (visible during recording)
+  private showWatermark = false;
+  private watermarkText = 'Gesture Symphony';
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d')!;
     this.trail = new TrailRenderer();
     this.particles = new ParticleSystem();
+    this.flower = new FlowerPattern();
+    this.postFx = new PostProcessing(canvas.width, canvas.height);
   }
 
   // ═══════════ PUBLIC API ═══════════
@@ -98,7 +107,10 @@ export class VisualEngine {
 
   setPreset(name: VisualModeName): void {
     const p = VISUAL_PRESETS[name];
-    if (p) this.preset = p;
+    if (p) {
+      this.preset = p;
+      this.postFx.setBloomIntensity(p.bloomIntensity);
+    }
   }
 
   setReelMode(on: boolean): void {
@@ -106,9 +118,26 @@ export class VisualEngine {
     this.computeReel();
   }
 
+  /** Enable / disable radial blur */
+  setRadialBlur(on: boolean): void {
+    this.postFx.setRadialBlurEnabled(on);
+  }
+
+  /** Enable / disable flower pattern */
+  setFlowerPattern(on: boolean): void {
+    this.flower.setEnabled(on);
+  }
+
+  /** Show / hide watermark (enable during recording) */
+  setWatermark(on: boolean, text?: string): void {
+    this.showWatermark = on;
+    if (text) this.watermarkText = text;
+  }
+
   resize(w: number, h: number): void {
     this.canvas.width = w;
     this.canvas.height = h;
+    this.postFx.resize(w, h);
     this.computeReel();
   }
 
@@ -139,6 +168,7 @@ export class VisualEngine {
     this.sHigh += (this.audio.highEnergy - this.sHigh) * k;
 
     this.particles.update(dt, this.sHigh);
+    this.flower.update(dt);
     this.render(dt);
     this.rafId = requestAnimationFrame(this.tick);
   };
@@ -148,7 +178,7 @@ export class VisualEngine {
     const w = this.canvas.width;
     const h = this.canvas.height;
 
-    // 1. Background
+    // ── 1. Background ──
     ctx.fillStyle = BACKGROUND_COLOR;
     ctx.fillRect(0, 0, w, h);
 
@@ -160,20 +190,39 @@ export class VisualEngine {
       ctx.clip();
     }
 
-    // 2. Ambient glow at cursor (very subtle)
+    // Radial blur center: cursor position if active, otherwise canvas center
+    const blurCx = this.cursorActive ? this.cursor.x : w / 2;
+    const blurCy = this.cursorActive ? this.cursor.y : h / 2;
+
+    // ── 2. Flower pattern (drawn before blur for streaking effect) ──
+    this.flower.render(
+      ctx, blurCx, blurCy,
+      this.sRms, this.sLow, this.sHigh,
+      this.cursor.pitch,
+    );
+
+    // ── 3. Ambient glow at cursor ──
     if (this.cursorActive) {
       this.drawAmbient(ctx);
     }
 
-    // 3. Trail
+    // ── 4. Trail ──
     this.trail.render(ctx, this.sRms);
 
-    // 4. Particles
+    // ── 5. Particles ──
     this.particles.render(ctx);
 
-    // 5. Cursor dot
+    // ── 6 & 7. Post-processing: Radial blur + Bloom ──
+    this.postFx.apply(ctx, this.canvas, blurCx, blurCy, this.sRms);
+
+    // ── 8. Cursor dot (AFTER blur, stays sharp) ──
     if (this.cursorActive) {
       this.drawCursor(ctx);
+    }
+
+    // ── 9. Watermark (during recording) ──
+    if (this.showWatermark) {
+      this.drawWatermark(ctx, w, h);
     }
 
     if (this.reelMode) {
@@ -226,6 +275,17 @@ export class VisualEngine {
     ctx.fillStyle = `rgba(255, 255, 255, ${0.9 + vel * 0.1})`;
     ctx.fill();
 
+    ctx.restore();
+  }
+
+  /** Subtle branded watermark in bottom-right */
+  private drawWatermark(ctx: CanvasRenderingContext2D, w: number, h: number): void {
+    ctx.save();
+    ctx.font = '11px Inter, -apple-system, sans-serif';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(this.watermarkText, w - 16, h - 16);
     ctx.restore();
   }
 

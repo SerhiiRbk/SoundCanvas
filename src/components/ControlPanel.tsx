@@ -7,6 +7,7 @@ import type {
   GestureSymphonyState,
   GestureSymphonyActions,
 } from '../hooks/useGestureSymphony';
+import { SceneSelector } from './SceneSelector';
 import type { VisualModeName } from '../composer/composerTypes';
 
 interface ControlPanelProps {
@@ -16,6 +17,8 @@ interface ControlPanelProps {
   availableRoots: string[];
   availableProgressions: { key: string; name: string }[];
   availableInstruments: { id: string; name: string }[];
+  performanceMode: boolean;
+  onTogglePerformanceMode: () => void;
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
@@ -25,6 +28,8 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   availableRoots,
   availableProgressions,
   availableInstruments,
+  performanceMode,
+  onTogglePerformanceMode,
 }) => {
   return (
     <div style={styles.panel}>
@@ -32,6 +37,25 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         <h2 style={styles.title}>Gesture Symphony</h2>
         <span style={styles.subtitle}>2.0</span>
       </div>
+
+      {/* ─── Scene Presets ─── */}
+      <Section title="Scene Presets">
+        <SceneSelector onSelect={actions.applyScene} compact />
+      </Section>
+
+      {/* ─── Performance Mode ─── */}
+      <Section title="Mode">
+        <button
+          style={{
+            ...styles.modeButton,
+            ...(performanceMode ? styles.modeButtonActive : {}),
+            width: '100%',
+          }}
+          onClick={onTogglePerformanceMode}
+        >
+          {performanceMode ? 'Exit Performance Mode' : 'Performance Mode (P)'}
+        </button>
+      </Section>
 
       {/* ─── Melodic Stability ─── */}
       <Section title="Melodic Stability">

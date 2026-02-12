@@ -413,6 +413,9 @@ export class SynthEngine {
   private analyser: Tone.Analyser | null = null;
   private fft: Tone.FFT | null = null;
 
+  /* ── Recording destination (connected alongside dest) ── */
+  private recordingDest: MediaStreamAudioDestinationNode | null = null;
+
   private initialized = false;
   private currentPreset: InstrumentPreset = INSTRUMENT_PRESETS[0];
 
@@ -439,6 +442,16 @@ export class SynthEngine {
     this.masterGain.connect(this.analyser);
     this.masterGain.connect(this.fft);
     this.masterGain.toDestination();
+
+    // Create recording destination (for MediaRecorder capture)
+    const rawCtx = Tone.getContext().rawContext;
+    if (rawCtx && 'createMediaStreamDestination' in rawCtx) {
+      this.recordingDest = (rawCtx as AudioContext).createMediaStreamDestination();
+      // Connect masterGain → recordingDest in parallel with dest
+      const toneNode = new Tone.Gain(1);
+      this.masterGain.connect(toneNode);
+      toneNode.connect(this.recordingDest);
+    }
 
     // Build lead voice + per-instrument FX for default preset
     this.buildLeadVoice(this.currentPreset);
@@ -907,6 +920,11 @@ export class SynthEngine {
   }
 
   isReady(): boolean { return this.initialized; }
+
+  /** Returns the MediaStreamAudioDestinationNode for recording, or null */
+  getAudioDestination(): MediaStreamAudioDestinationNode | null {
+    return this.recordingDest;
+  }
 
   dispose(): void {
     this.teardownLeadChain();

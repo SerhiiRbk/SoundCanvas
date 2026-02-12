@@ -1,99 +1,136 @@
 /**
- * Post Processing — Bloom + Gamma Correction + Motion Blur.
+ * Post-Processing v2 — Radial Blur + Bloom.
  *
- * Canvas 2D implementation:
- *  - Multi-pass bloom via downscale → upscale (3 passes at different radii)
- *  - shadowBlur + globalCompositeOperation = "lighter" for additive blending
- *  - Gamma correction applied on final composite
- *  - Motion blur via frame-blending (retains previous frame at low alpha)
+ * Radial blur (zoom blur):
+ *   Captures the current frame, then composites it back multiple times
+ *   at increasing scale from a center point with additive blending.
+ *   Creates streaks radiating outward — the "Electric Flower" effect.
+ *
+ * Bloom:
+ *   Multi-pass downscale/upscale with additive composite for soft glow.
  */
 
 export class PostProcessing {
-  // Off-screen canvases for bloom passes
+  /* ── Offscreen canvases ── */
+  private blurCanvas: HTMLCanvasElement;
+  private blurCtx: CanvasRenderingContext2D;
   private bloomCanvas: HTMLCanvasElement;
   private bloomCtx: CanvasRenderingContext2D;
-  // Off-screen canvas for motion blur accumulation
-  private motionCanvas: HTMLCanvasElement;
-  private motionCtx: CanvasRenderingContext2D;
 
-  private bloomIntensity: number = 0.5;
-  private motionBlurAmount: number = 0.0; // 0 = off, up to ~0.4
-  private gammaValue: number = 1.0;       // 1.0 = neutral
+  /* ── Config ── */
+  private radialBlurEnabled = true;
+  private radialBlurStrength = 0.06;   // max zoom factor (0.03–0.12)
+  private radialBlurPasses = 12;
+  private bloomEnabled = true;
+  private bloomIntensity = 0.5;
 
   constructor(width: number, height: number) {
+    this.blurCanvas = document.createElement('canvas');
+    this.blurCanvas.width = width;
+    this.blurCanvas.height = height;
+    this.blurCtx = this.blurCanvas.getContext('2d', { willReadFrequently: false })!;
+
     this.bloomCanvas = document.createElement('canvas');
     this.bloomCanvas.width = width;
     this.bloomCanvas.height = height;
     this.bloomCtx = this.bloomCanvas.getContext('2d', { willReadFrequently: false })!;
-
-    this.motionCanvas = document.createElement('canvas');
-    this.motionCanvas.width = width;
-    this.motionCanvas.height = height;
-    this.motionCtx = this.motionCanvas.getContext('2d', { willReadFrequently: false })!;
   }
 
-  // ─── Configuration ───
+  /* ═══════════ Config setters ═══════════ */
 
-  setBloomIntensity(intensity: number): void {
-    this.bloomIntensity = Math.max(0, Math.min(1, intensity));
-  }
+  setRadialBlurEnabled(on: boolean): void { this.radialBlurEnabled = on; }
+  setRadialBlurStrength(v: number): void { this.radialBlurStrength = Math.max(0, Math.min(0.15, v)); }
+  setRadialBlurPasses(n: number): void { this.radialBlurPasses = Math.max(4, Math.min(20, n)); }
+  setBloomEnabled(on: boolean): void { this.bloomEnabled = on; }
+  setBloomIntensity(v: number): void { this.bloomIntensity = Math.max(0, Math.min(1, v)); }
 
-  setMotionBlurAmount(amount: number): void {
-    this.motionBlurAmount = Math.max(0, Math.min(0.6, amount));
-  }
-
-  setGamma(gamma: number): void {
-    this.gammaValue = Math.max(0.5, Math.min(2.5, gamma));
-  }
-
-  // ─── Main Processing Pipeline ───
+  /* ═══════════ Main pipeline ═══════════ */
 
   /**
-   * Apply the full post-processing pipeline to the main canvas.
-   * Call order: motion blur → bloom → gamma.
+   * Apply radial blur + bloom to the main canvas.
+   * @param cx radial blur center X (typically cursor X or canvas center)
+   * @param cy radial blur center Y
+   * @param audioBoost 0–1 extra strength from RMS amplitude
    */
   apply(
     mainCtx: CanvasRenderingContext2D,
-    mainCanvas: HTMLCanvasElement
+    mainCanvas: HTMLCanvasElement,
+    cx: number,
+    cy: number,
+    audioBoost: number = 0,
   ): void {
-    // 1. Motion blur (blend previous frame underneath)
-    this.applyMotionBlur(mainCtx, mainCanvas);
-
-    // 2. Multi-pass bloom
-    this.applyBloom(mainCtx, mainCanvas);
-
-    // 3. Gamma correction
-    this.applyGamma(mainCtx, mainCanvas);
+    if (this.radialBlurEnabled) {
+      this.applyRadialBlur(mainCtx, mainCanvas, cx, cy, audioBoost);
+    }
+    if (this.bloomEnabled) {
+      this.applyBloom(mainCtx, mainCanvas);
+    }
   }
 
-  // ─── Bloom ───
+  /* ═══════════ Radial Blur ═══════════ */
 
-  /**
-   * Multi-pass bloom: 3 downscale/upscale passes at decreasing resolution.
-   * Each pass is composited with additive blending.
-   */
+  private applyRadialBlur(
+    mainCtx: CanvasRenderingContext2D,
+    mainCanvas: HTMLCanvasElement,
+    cx: number,
+    cy: number,
+    audioBoost: number,
+  ): void {
+    const w = mainCanvas.width;
+    const h = mainCanvas.height;
+    this.ensureSize(this.blurCanvas, w, h);
+
+    // Capture current frame
+    this.blurCtx.clearRect(0, 0, w, h);
+    this.blurCtx.drawImage(mainCanvas, 0, 0);
+
+    // Effective strength: base + audio-reactive boost
+    const strength = this.radialBlurStrength + audioBoost * 0.04;
+    const passes = this.radialBlurPasses;
+
+    for (let i = 1; i <= passes; i++) {
+      const t = i / passes;
+      const scale = 1 + t * strength;
+
+      // Alpha envelope: stronger near center, fading outward.
+      // Using a quadratic falloff for a natural look.
+      const alpha = 0.18 * Math.pow(1 - t * 0.5, 2);
+      if (alpha < 0.005) continue;
+
+      mainCtx.save();
+      mainCtx.globalCompositeOperation = 'lighter';
+      mainCtx.globalAlpha = alpha;
+      mainCtx.translate(cx, cy);
+      mainCtx.scale(scale, scale);
+      mainCtx.translate(-cx, -cy);
+      mainCtx.drawImage(this.blurCanvas, 0, 0);
+      mainCtx.restore();
+    }
+  }
+
+  /* ═══════════ Bloom ═══════════ */
+
   private applyBloom(
     mainCtx: CanvasRenderingContext2D,
-    mainCanvas: HTMLCanvasElement
+    mainCanvas: HTMLCanvasElement,
   ): void {
     if (this.bloomIntensity < 0.01) return;
 
     const w = mainCanvas.width;
     const h = mainCanvas.height;
-
     this.ensureSize(this.bloomCanvas, w, h);
 
     // Pass 1: 1/4 scale (soft glow)
-    this.bloomPass(mainCtx, mainCanvas, w, h, 0.25, this.bloomIntensity * 0.55);
+    this.bloomPass(mainCtx, mainCanvas, w, h, 0.25, this.bloomIntensity * 0.45);
 
     // Pass 2: 1/8 scale (wider glow)
     if (this.bloomIntensity > 0.25) {
-      this.bloomPass(mainCtx, mainCanvas, w, h, 0.125, this.bloomIntensity * 0.35);
+      this.bloomPass(mainCtx, mainCanvas, w, h, 0.125, this.bloomIntensity * 0.3);
     }
 
     // Pass 3: 1/16 scale (very wide haze)
     if (this.bloomIntensity > 0.5) {
-      this.bloomPass(mainCtx, mainCanvas, w, h, 0.0625, this.bloomIntensity * 0.2);
+      this.bloomPass(mainCtx, mainCanvas, w, h, 0.0625, this.bloomIntensity * 0.15);
     }
   }
 
@@ -103,18 +140,17 @@ export class PostProcessing {
     w: number,
     h: number,
     scale: number,
-    alpha: number
+    alpha: number,
   ): void {
     const sw = Math.max(1, Math.floor(w * scale));
     const sh = Math.max(1, Math.floor(h * scale));
 
     this.bloomCtx.clearRect(0, 0, w, h);
-    // Down-sample
+    // Downscale
     this.bloomCtx.drawImage(mainCanvas, 0, 0, sw, sh);
-    // Up-sample (natural box blur)
+    // Upscale (natural box-blur)
     this.bloomCtx.drawImage(this.bloomCanvas, 0, 0, sw, sh, 0, 0, w, h);
 
-    // Composite onto main canvas
     mainCtx.save();
     mainCtx.globalCompositeOperation = 'lighter';
     mainCtx.globalAlpha = alpha;
@@ -122,83 +158,16 @@ export class PostProcessing {
     mainCtx.restore();
   }
 
-  // ─── Motion Blur ───
-
-  /**
-   * Simple frame-blending motion blur.
-   * Retains previous frame content at low alpha underneath the current frame.
-   */
-  private applyMotionBlur(
-    mainCtx: CanvasRenderingContext2D,
-    mainCanvas: HTMLCanvasElement
-  ): void {
-    if (this.motionBlurAmount < 0.01) return;
-
-    const w = mainCanvas.width;
-    const h = mainCanvas.height;
-    this.ensureSize(this.motionCanvas, w, h);
-
-    // Draw previous accumulated frame underneath current at reduced alpha
-    mainCtx.save();
-    mainCtx.globalCompositeOperation = 'source-over';
-    mainCtx.globalAlpha = this.motionBlurAmount;
-    mainCtx.drawImage(this.motionCanvas, 0, 0);
-    mainCtx.restore();
-
-    // Capture current frame for next iteration
-    this.motionCtx.clearRect(0, 0, w, h);
-    this.motionCtx.drawImage(mainCanvas, 0, 0);
-  }
-
-  // ─── Gamma Correction ───
-
-  /**
-   * Apply gamma correction. Only active when gamma ≠ 1.0.
-   * Uses a subtle brightness/contrast adjustment via compositing (avoids
-   * expensive pixel-level ImageData manipulation each frame).
-   *
-   * gamma < 1 → brighter midtones (lift shadows)
-   * gamma > 1 → darker midtones (crush shadows)
-   */
-  private applyGamma(
-    mainCtx: CanvasRenderingContext2D,
-    mainCanvas: HTMLCanvasElement
-  ): void {
-    if (Math.abs(this.gammaValue - 1.0) < 0.02) return;
-
-    const w = mainCanvas.width;
-    const h = mainCanvas.height;
-
-    if (this.gammaValue < 1.0) {
-      // Lighten: overlay a very dim white layer with 'lighter'
-      const lift = (1.0 - this.gammaValue) * 0.08;
-      mainCtx.save();
-      mainCtx.globalCompositeOperation = 'lighter';
-      mainCtx.fillStyle = `rgba(255, 255, 255, ${lift})`;
-      mainCtx.fillRect(0, 0, w, h);
-      mainCtx.restore();
-    } else {
-      // Darken: overlay a dim black layer with 'multiply'
-      const crush = (this.gammaValue - 1.0) * 0.12;
-      mainCtx.save();
-      mainCtx.globalCompositeOperation = 'multiply';
-      const v = Math.round(255 * (1 - crush));
-      mainCtx.fillStyle = `rgb(${v}, ${v}, ${v})`;
-      mainCtx.fillRect(0, 0, w, h);
-      mainCtx.restore();
-    }
-  }
-
-  // ─── Resize ───
+  /* ═══════════ Resize ═══════════ */
 
   resize(width: number, height: number): void {
+    this.blurCanvas.width = width;
+    this.blurCanvas.height = height;
     this.bloomCanvas.width = width;
     this.bloomCanvas.height = height;
-    this.motionCanvas.width = width;
-    this.motionCanvas.height = height;
   }
 
-  // ─── Helpers ───
+  /* ═══════════ Helpers ═══════════ */
 
   private ensureSize(canvas: HTMLCanvasElement, w: number, h: number): void {
     if (canvas.width !== w || canvas.height !== h) {
