@@ -129,13 +129,11 @@ export class TrailRenderer {
   }
 
   render(ctx: CanvasRenderingContext2D, rms: number = 0): void {
-    // Accept rms from legacy call-sites too
     if (rms > 0 && this.globalRms === 0) this.globalRms = rms;
 
     const now = performance.now() / 1000;
     const expiry = this.decayTau * 6;
 
-    // Prune expired points
     while (this.points.length > 0 && now - this.points[0].timestamp > expiry) {
       this.points.shift();
     }
@@ -147,131 +145,73 @@ export class TrailRenderer {
     }
 
     ctx.save();
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
 
     const gRms = this.globalRms;
     const gLow = this.globalLow;
-    const gHigh = this.globalHigh;
-
-    // Time-varying base hue offset (global shimmer)
     const timeHueShift = Math.sin(now * HUE_TIME_SPEED) * HUE_TIME_AMP;
 
-    // ══════════════════════════════════════════════
-    // Pass 1 — Main coloured spline
-    // ══════════════════════════════════════════════
-    for (let i = 1; i < N - 1; i++) {
-      const pPrev = this.points[i - 1];
-      const pCurr = this.points[i];
-      const pNext = this.points[i + 1];
+    // ── Pre-compute per-point data ──
+    const xs: number[] = [];
+    const ys: number[] = [];
+    const alphas: number[] = [];
+    const widths: number[] = [];
+    const hues: number[] = [];
+    const nxs: number[] = [];  // normal x
+    const nys: number[] = [];  // normal y
 
-      const age = now - pCurr.timestamp;
-      const alpha = Math.exp(-age / this.decayTau);
-      if (alpha < 0.02) continue;
+    for (let i = 0; i < N; i++) {
+      const p = this.points[i];
+      xs.push(p.x);
+      ys.push(p.y);
 
-      // t: 0 = oldest, 1 = newest
-      const t = i / (N - 1);
+      const age = now - p.timestamp;
+      alphas.push(Math.exp(-age / this.decayTau));
 
-      // ── Width (tapers toward tail) ──
-      const baseW = Math.min(8, TRAIL_BASE_WIDTH + pCurr.velocity * TRAIL_VELOCITY_WIDTH_K);
-      const w = Math.max(0.6, baseW * (0.1 + t * 0.9));
+      const t = i / (N - 1); // 0=tail, 1=head
 
-      // ── Iridescent hue ──
-      // Base pitch hue + position-dependent rainbow spread + time oscillation
-      // + beat-driven shift + travelling colour wave
+      // Comet taper: wide at head, vanishes at tail. Cubic ease for smooth taper.
+      const taper = t * t;
+      const maxW = 12 + gRms * 10 + gLow * 5 + p.velocity * 0.03;
+      widths.push(Math.max(0.5, maxW * taper));
+
+      // Hue
       const posHue = t * HUE_SPREAD;
-      const beatHue = pCurr.rms * HUE_RMS_SHIFT;
+      const beatHue = p.rms * HUE_RMS_SHIFT;
       const wavePhase = t * Math.PI * 2 * COLOUR_WAVE_FREQ - now * COLOUR_WAVE_SPEED;
       const waveHue = Math.sin(wavePhase) * COLOUR_WAVE_AMP;
-      const hue = ((pCurr.hue + posHue + timeHueShift + beatHue + waveHue) % 360 + 360) % 360;
+      hues.push(((p.hue + posHue + timeHueShift + beatHue + waveHue) % 360 + 360) % 360);
+    }
 
-      // ── Saturation & lightness — react to current + stored audio ──
-      const sat = Math.min(100, 60 + t * 25 + gRms * BEAT_SATURATION_BOOST + gLow * 8);
-      const lum = Math.min(88, 40 + t * 35 + gRms * BEAT_LIGHTNESS_BOOST + pCurr.rms * 10);
-
-      // ── Bézier midpoints ──
-      const mx0 = (pPrev.x + pCurr.x) * 0.5;
-      const my0 = (pPrev.y + pCurr.y) * 0.5;
-      const mx1 = (pCurr.x + pNext.x) * 0.5;
-      const my1 = (pCurr.y + pNext.y) * 0.5;
-
-      ctx.beginPath();
-      ctx.moveTo(mx0, my0);
-      ctx.quadraticCurveTo(pCurr.x, pCurr.y, mx1, my1);
-      ctx.lineWidth = w;
-      ctx.strokeStyle = `hsla(${hue}, ${sat}%, ${lum}%, ${alpha})`;
-      ctx.stroke();
+    // Compute normals (perpendicular to trail direction)
+    for (let i = 0; i < N; i++) {
+      let dx: number, dy: number;
+      if (i === 0) {
+        dx = xs[1] - xs[0]; dy = ys[1] - ys[0];
+      } else if (i === N - 1) {
+        dx = xs[i] - xs[i - 1]; dy = ys[i] - ys[i - 1];
+      } else {
+        dx = xs[i + 1] - xs[i - 1]; dy = ys[i + 1] - ys[i - 1];
+      }
+      const len = Math.sqrt(dx * dx + dy * dy) || 1;
+      nxs.push(-dy / len);
+      nys.push(dx / len);
     }
 
     // ══════════════════════════════════════════════
-    // Pass 2 — Bright iridescent core (head 55%)
-    // ══════════════════════════════════════════════
-    for (let i = 1; i < N - 1; i++) {
-      const t = i / (N - 1);
-      if (t < 0.35) continue;
-
-      const pPrev = this.points[i - 1];
-      const pCurr = this.points[i];
-      const pNext = this.points[i + 1];
-
-      const age = now - pCurr.timestamp;
-      const alpha = Math.exp(-age / this.decayTau);
-      if (alpha < 0.04) continue;
-
-      const baseW = Math.min(8, TRAIL_BASE_WIDTH + pCurr.velocity * TRAIL_VELOCITY_WIDTH_K);
-      const w = Math.max(0.3, baseW * (0.1 + t * 0.9) * 0.35);
-      const coreAlpha = alpha * ((t - 0.35) / 0.65) * (0.7 + gRms * 0.3);
-
-      // Core gets a complementary hue shift for iridescence
-      const posHue = t * HUE_SPREAD;
-      const wavePhase = t * Math.PI * 2 * COLOUR_WAVE_FREQ - now * COLOUR_WAVE_SPEED;
-      const waveHue = Math.sin(wavePhase) * COLOUR_WAVE_AMP;
-      const coreHue = ((pCurr.hue + posHue + timeHueShift + waveHue + 30) % 360 + 360) % 360;
-
-      const mx0 = (pPrev.x + pCurr.x) * 0.5;
-      const my0 = (pPrev.y + pCurr.y) * 0.5;
-      const mx1 = (pCurr.x + pNext.x) * 0.5;
-      const my1 = (pCurr.y + pNext.y) * 0.5;
-
-      ctx.beginPath();
-      ctx.moveTo(mx0, my0);
-      ctx.quadraticCurveTo(pCurr.x, pCurr.y, mx1, my1);
-      ctx.lineWidth = w;
-      // Slightly shifted hue, very high lightness → iridescent core
-      ctx.strokeStyle = `hsla(${coreHue}, 30%, ${90 + gRms * 8}%, ${coreAlpha})`;
-      ctx.stroke();
-    }
-
-    // ══════════════════════════════════════════════
-    // Pass 3 — Soft outer glow (additive) — beat-reactive width
+    // Pass 1 — Wide diffuse glow (additive)
     // ══════════════════════════════════════════════
     ctx.globalCompositeOperation = 'lighter';
 
-    // Glow is wider on strong beats
-    const glowScale = 2.0 + gRms * 1.8 + gLow * 0.8;
-
     for (let i = 1; i < N - 1; i++) {
       const t = i / (N - 1);
-      if (t < 0.5) continue;
+      if (t < 0.2) continue;
+      const a = alphas[i] * t * t * (0.04 + gRms * 0.05);
+      if (a < 0.005) continue;
 
+      const w = widths[i] * (3.0 + gRms * 2.0);
       const pPrev = this.points[i - 1];
       const pCurr = this.points[i];
       const pNext = this.points[i + 1];
-
-      const age = now - pCurr.timestamp;
-      const alpha = Math.exp(-age / this.decayTau);
-      if (alpha < 0.06) continue;
-
-      const baseW = Math.min(8, TRAIL_BASE_WIDTH + pCurr.velocity * TRAIL_VELOCITY_WIDTH_K);
-      const w = Math.max(2, baseW * (0.1 + t * 0.9) * glowScale);
-      const glowAlpha = alpha * ((t - 0.5) / 0.5) * (0.06 + gRms * 0.06);
-
-      // Glow hue follows the same shimmer pattern
-      const posHue = t * HUE_SPREAD;
-      const wavePhase = t * Math.PI * 2 * COLOUR_WAVE_FREQ - now * COLOUR_WAVE_SPEED;
-      const waveHue = Math.sin(wavePhase) * COLOUR_WAVE_AMP;
-      const glowHue = ((pCurr.hue + posHue + timeHueShift + waveHue) % 360 + 360) % 360;
-
       const mx0 = (pPrev.x + pCurr.x) * 0.5;
       const my0 = (pPrev.y + pCurr.y) * 0.5;
       const mx1 = (pCurr.x + pNext.x) * 0.5;
@@ -281,8 +221,139 @@ export class TrailRenderer {
       ctx.moveTo(mx0, my0);
       ctx.quadraticCurveTo(pCurr.x, pCurr.y, mx1, my1);
       ctx.lineWidth = w;
-      ctx.strokeStyle = `hsla(${glowHue}, 55%, 55%, ${glowAlpha})`;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = `hsla(${hues[i]}, 50%, 50%, ${a})`;
       ctx.stroke();
+    }
+
+    // ══════════════════════════════════════════════
+    // Pass 2 — Filled comet body (tapered polygon)
+    // ══════════════════════════════════════════════
+    ctx.globalCompositeOperation = 'lighter';
+
+    // Build left and right edges of the tapered shape
+    if (N >= 3) {
+      // Draw as a series of gradient-filled quads for smooth colour transition
+      for (let i = 0; i < N - 1; i++) {
+        const t0 = i / (N - 1);
+        const t1 = (i + 1) / (N - 1);
+        const a0 = alphas[i] * t0;
+        const a1 = alphas[i + 1] * t1;
+        if (a0 < 0.01 && a1 < 0.01) continue;
+
+        const w0 = widths[i];
+        const w1 = widths[i + 1];
+
+        // Quad corners
+        const lx0 = xs[i] + nxs[i] * w0;
+        const ly0 = ys[i] + nys[i] * w0;
+        const rx0 = xs[i] - nxs[i] * w0;
+        const ry0 = ys[i] - nys[i] * w0;
+        const lx1 = xs[i + 1] + nxs[i + 1] * w1;
+        const ly1 = ys[i + 1] + nys[i + 1] * w1;
+        const rx1 = xs[i + 1] - nxs[i + 1] * w1;
+        const ry1 = ys[i + 1] - nys[i + 1] * w1;
+
+        // Colour: tail is saturated, head goes white-hot
+        const sat0 = Math.max(10, 70 - t0 * 50);
+        const lum0 = Math.min(95, 50 + t0 * 40 + gRms * 10);
+        const sat1 = Math.max(10, 70 - t1 * 50);
+        const lum1 = Math.min(95, 50 + t1 * 40 + gRms * 10);
+
+        // Gradient along the segment
+        const grad = ctx.createLinearGradient(xs[i], ys[i], xs[i + 1], ys[i + 1]);
+        grad.addColorStop(0, `hsla(${hues[i]}, ${sat0}%, ${lum0}%, ${a0 * 0.7})`);
+        grad.addColorStop(1, `hsla(${hues[Math.min(i + 1, N - 1)]}, ${sat1}%, ${lum1}%, ${a1 * 0.7})`);
+
+        ctx.beginPath();
+        ctx.moveTo(lx0, ly0);
+        ctx.lineTo(lx1, ly1);
+        ctx.lineTo(rx1, ry1);
+        ctx.lineTo(rx0, ry0);
+        ctx.closePath();
+        ctx.fillStyle = grad;
+        ctx.fill();
+      }
+    }
+
+    // ══════════════════════════════════════════════
+    // Pass 3 — Bright white-hot core (thin line at center)
+    // ══════════════════════════════════════════════
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    for (let i = 1; i < N - 1; i++) {
+      const t = i / (N - 1);
+      if (t < 0.3) continue;
+
+      const pPrev = this.points[i - 1];
+      const pCurr = this.points[i];
+      const pNext = this.points[i + 1];
+
+      const a = alphas[i] * ((t - 0.3) / 0.7);
+      if (a < 0.03) continue;
+
+      const coreW = Math.max(0.5, widths[i] * 0.25);
+      const coreAlpha = a * (0.8 + gRms * 0.2);
+
+      const mx0 = (pPrev.x + pCurr.x) * 0.5;
+      const my0 = (pPrev.y + pCurr.y) * 0.5;
+      const mx1 = (pCurr.x + pNext.x) * 0.5;
+      const my1 = (pCurr.y + pNext.y) * 0.5;
+
+      ctx.beginPath();
+      ctx.moveTo(mx0, my0);
+      ctx.quadraticCurveTo(pCurr.x, pCurr.y, mx1, my1);
+      ctx.lineWidth = coreW;
+      ctx.strokeStyle = `hsla(${(hues[i] + 20) % 360}, 20%, ${92 + gRms * 6}%, ${coreAlpha})`;
+      ctx.stroke();
+    }
+
+    // ══════════════════════════════════════════════
+    // Pass 4 — Comet dust particles (scattered along edges)
+    // ══════════════════════════════════════════════
+    const dustCount = Math.min(N * 2, 120);
+    for (let d = 0; d < dustCount; d++) {
+      // Pick a random point along the trail, biased toward the head
+      const ri = Math.floor(Math.pow(Math.random(), 0.6) * (N - 1));
+      const t = ri / (N - 1);
+      const a = alphas[ri] * t;
+      if (a < 0.05) continue;
+
+      const spread = widths[ri] * (1.2 + Math.random() * 1.5);
+      const ox = nxs[ri] * spread * (Math.random() - 0.5) * 2;
+      const oy = nys[ri] * spread * (Math.random() - 0.5) * 2;
+      const px = xs[ri] + ox;
+      const py = ys[ri] + oy;
+      const sz = 0.5 + Math.random() * 1.5;
+      const da = a * (0.15 + Math.random() * 0.25);
+
+      ctx.beginPath();
+      ctx.arc(px, py, sz, 0, Math.PI * 2);
+      ctx.fillStyle = `hsla(${hues[ri]}, 60%, 75%, ${da})`;
+      ctx.fill();
+    }
+
+    // ══════════════════════════════════════════════
+    // Pass 5 — Head glow (bright radial at newest point)
+    // ══════════════════════════════════════════════
+    if (N > 2) {
+      const head = this.points[N - 1];
+      const headAlpha = alphas[N - 1];
+      const headR = widths[N - 1] * (2.5 + gRms * 2.0);
+      const headHue = hues[N - 1];
+
+      if (headAlpha > 0.1 && headR > 2) {
+        const grad = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, headR);
+        grad.addColorStop(0, `hsla(${headHue}, 20%, 95%, ${headAlpha * 0.6})`);
+        grad.addColorStop(0.3, `hsla(${headHue}, 50%, 75%, ${headAlpha * 0.3})`);
+        grad.addColorStop(0.7, `hsla(${headHue}, 60%, 55%, ${headAlpha * 0.08})`);
+        grad.addColorStop(1, `hsla(${headHue}, 60%, 55%, 0)`);
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(head.x, head.y, headR, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     ctx.restore();

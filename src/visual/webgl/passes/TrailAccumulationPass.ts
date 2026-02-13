@@ -17,6 +17,7 @@ import { pitchToHue, hslToRgb } from '../../colorMapping';
 const UNIFORM_NAMES = [
   'uPrevTrail', 'uDecay', 'uMouseUV',
   'uSplatRadius', 'uSplatIntensity', 'uSplatColor',
+  'uMouseDir', 'uMouseSpeed',
 ] as const;
 
 export class TrailAccumulationPass {
@@ -106,6 +107,19 @@ export class TrailAccumulationPass {
     const hue = pitchToHue(frame.pitch);
     const rgb = hslToRgb(hue, config.colorSaturation / 100, config.colorLightness / 100);
     gl.uniform3f(this.uniforms.uSplatColor, rgb[0], rgb[1], rgb[2]);
+
+    // Cursor direction & speed for directional comet splat
+    const { vx, vy, speed } = frame.mouse;
+    const spd = Math.sqrt(vx * vx + vy * vy) || 0;
+    let dirX = 1.0, dirY = 0.0;
+    if (spd > 0.5) {
+      dirX = vx / spd;
+      dirY = vy / spd;
+    }
+    gl.uniform2f(this.uniforms.uMouseDir, dirX, dirY);
+    // Normalise speed to 0..1 range (clamp at ~800 px/s)
+    const normSpeed = Math.min(speed / 800, 1.0);
+    gl.uniform1f(this.uniforms.uMouseSpeed, normSpeed);
 
     gl.bindVertexArray(this.vao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);

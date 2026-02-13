@@ -169,6 +169,8 @@ uniform vec2      uMouseUV;       // in 0..1 UV space
 uniform float     uSplatRadius;   // in UV units
 uniform float     uSplatIntensity;
 uniform vec3      uSplatColor;    // linear RGB
+uniform vec2      uMouseDir;      // normalised cursor direction
+uniform float     uMouseSpeed;    // cursor speed (0..1 normalised)
 
 void main() {
   vec4 prev = texture(uPrevTrail, vUV);
@@ -176,11 +178,28 @@ void main() {
   // Decay existing trail
   vec4 trail = prev * uDecay;
 
-  // Gaussian splat at cursor
+  // Directional comet splat: elongated along cursor direction
   vec2 diff = vUV - uMouseUV;
-  float d2 = dot(diff, diff);
+
+  // Decompose into parallel and perpendicular to movement
+  float para = dot(diff, uMouseDir);
+  float perp = length(diff - uMouseDir * para);
+
+  // Comet shape: longer tail behind, compact head in front
+  // Tail extends backward (para < 0), head is tight (para > 0)
+  float tailStretch = 2.5 + uMouseSpeed * 3.0;
+  float headTight = 0.6;
+  float paraScale = para < 0.0 ? tailStretch : headTight;
+
   float sigma2 = uSplatRadius * uSplatRadius + 1e-6;
-  float splat = exp(-d2 / sigma2) * uSplatIntensity;
+  float d2 = (para * para) / (sigma2 * paraScale * paraScale)
+           + (perp * perp) / sigma2;
+  float splat = exp(-d2) * uSplatIntensity;
+
+  // Brightness gradient: brighter at head, dimmer at tail
+  float headBright = 1.0 + max(-para, 0.0) * 0.0; // tail stays coloured
+  float headBoost = 1.0 + max(para, 0.0) / (uSplatRadius + 0.001) * 0.3;
+  splat *= headBoost;
 
   trail.rgb += uSplatColor * splat;
   trail.a = min(trail.a + splat * 0.5, 1.0);
