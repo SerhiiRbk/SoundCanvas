@@ -35,6 +35,7 @@ import { WebGLVisualEngine } from './webgl/WebGLVisualEngine';
 import { CanvasVisualEngine } from './canvas/CanvasVisualEngine';
 
 import { MeditationVisuals } from './meditationVisuals';
+import { NoteParticles } from './noteParticles';
 import { pitchToHue, hslToString } from './colorMapping';
 
 import {
@@ -59,6 +60,7 @@ export class VisualEngine {
 
   /* ── 2D overlay components (always Canvas) ── */
   private meditation: MeditationVisuals;
+  private noteParticles: NoteParticles;
 
   /* ── State (legacy compat) ── */
   private cursor: CursorState = { x: -100, y: -100, velocity: 0, pitch: 60 };
@@ -104,6 +106,7 @@ export class VisualEngine {
     this.perf.syncConfig(this.config);
 
     this.meditation = new MeditationVisuals();
+    this.noteParticles = new NoteParticles();
 
     // Create initial backend
     this.initBackend();
@@ -380,6 +383,15 @@ export class VisualEngine {
     // Update meditation visuals (always 2D)
     this.meditation.update(dt);
 
+    // Update note particles (always 2D overlay)
+    this.noteParticles.update(
+      dt,
+      this.cursor.x, this.cursor.y,
+      this.cursor.velocity,
+      this.cursor.pitch,
+      this.sRms,
+    );
+
     // Update backend
     this.backend?.update(frame);
 
@@ -433,6 +445,9 @@ export class VisualEngine {
       this.sRms, this.sLow, this.sHigh,
       this.cursor.pitch,
     );
+
+    // Note particles (always 2D overlay, on top of everything)
+    this.noteParticles.render(ctx);
 
     // Cursor dot (always sharp, on top)
     if (this.cursorActive) {

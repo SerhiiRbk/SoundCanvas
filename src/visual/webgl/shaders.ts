@@ -256,6 +256,102 @@ void main() {
 `;
 
 /* ══════════════════════════════════════════════
+   3b. NOTE PARTICLE PASS (instanced quads — ♪ shape)
+   ══════════════════════════════════════════════ */
+
+export const NOTE_PARTICLE_VERT = /* glsl */ `#version 300 es
+precision highp float;
+
+layout(location = 0) in vec2 aQuad;
+
+layout(location = 1) in vec2  iPos;
+layout(location = 2) in float iSize;
+layout(location = 3) in float iHue;
+layout(location = 4) in float iAlpha;
+layout(location = 5) in float iRotation;
+
+uniform vec2 uResolution;
+
+out vec2  vLocal;
+out float vHue;
+out float vAlpha;
+
+void main() {
+  vHue   = iHue;
+  vAlpha = iAlpha;
+
+  float c = cos(iRotation);
+  float s = sin(iRotation);
+  vec2 rotated = vec2(c * aQuad.x - s * aQuad.y,
+                      s * aQuad.x + c * aQuad.y);
+  vLocal = rotated;
+
+  vec2 worldPos = iPos + rotated * iSize;
+  vec2 ndc = (worldPos / uResolution) * 2.0 - 1.0;
+  ndc.y = -ndc.y;
+
+  gl_Position = vec4(ndc, 0.0, 1.0);
+}
+`;
+
+export const NOTE_PARTICLE_FRAG = /* glsl */ `#version 300 es
+precision highp float;
+
+in vec2  vLocal;
+in float vHue;
+in float vAlpha;
+
+out vec4 fragColor;
+
+${HSL2RGB_FUNC}
+
+/* SDF for a musical note: oval head + stem + flag */
+float noteSDF(vec2 p) {
+  // Note head: filled ellipse, slightly tilted
+  float ca = cos(0.3), sa = sin(0.3);
+  vec2 rp = vec2(ca * p.x + sa * p.y, -sa * p.x + ca * p.y);
+  vec2 headCenter = vec2(-0.05, -0.35);
+  vec2 hp = (rp - headCenter) / vec2(0.32, 0.24);
+  float head = length(hp) - 1.0;
+
+  // Stem: thin vertical line from head to top
+  vec2 stemP = p - vec2(0.2, 0.0);
+  float stemD = abs(stemP.x) - 0.045;
+  float stemTop = 0.55;
+  float stemBot = -0.2;
+  float stemClip = max(stemBot - stemP.y, stemP.y - stemTop);
+  float stem = max(stemD, stemClip);
+
+  // Flag: wavy curve at top of stem
+  float fy = p.y - 0.2;
+  float fx = p.x - 0.2;
+  float wave = fx - 0.22 * sin(fy * 5.0 + 0.8);
+  float flagD = abs(wave) - 0.045;
+  float flagClip = max(-fy, fy - 0.35);
+  flagClip = max(flagClip, -fx);
+  float flag = max(flagD, flagClip);
+
+  return min(head, min(stem, flag));
+}
+
+void main() {
+  float d = noteSDF(vLocal);
+
+  float shape = 1.0 - smoothstep(-0.06, 0.06, d);
+  float glow = exp(-max(d, 0.0) * 4.0) * 0.5;
+  float total = shape + glow;
+
+  if (total < 0.005) discard;
+
+  vec3 color = hsl2rgb(vHue, 0.85, 0.7);
+  color = mix(color, vec3(1.0), shape * 0.5);
+
+  float a = total * vAlpha;
+  fragColor = vec4(color * a, a);
+}
+`;
+
+/* ══════════════════════════════════════════════
    4. RIPPLE PASS (instanced quads)
    ══════════════════════════════════════════════ */
 

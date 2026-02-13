@@ -20,6 +20,7 @@ import { BackgroundPass } from './passes/BackgroundPass';
 import { ElectricFlowerPass } from './passes/ElectricFlowerPass';
 import { TrailAccumulationPass } from './passes/TrailAccumulationPass';
 import { ParticlePass } from './passes/ParticlePass';
+import { NoteParticlePass } from './passes/NoteParticlePass';
 import { RipplePass } from './passes/RipplePass';
 import { BrightExtractPass } from './passes/BrightExtractPass';
 import { BlurPass } from './passes/BlurPass';
@@ -40,6 +41,7 @@ export class WebGLVisualEngine implements IVisualBackend {
   private flowerPass: ElectricFlowerPass;
   private trailPass: TrailAccumulationPass;
   private particlePass: ParticlePass;
+  private noteParticlePass: NoteParticlePass;
   private ripplePass: RipplePass;
   private brightPass: BrightExtractPass;
   private blurPass: BlurPass;
@@ -90,6 +92,7 @@ export class WebGLVisualEngine implements IVisualBackend {
     this.flowerPass = new ElectricFlowerPass(gl);
     this.trailPass = new TrailAccumulationPass(gl, floatRT);
     this.particlePass = new ParticlePass(gl, config.maxParticles);
+    this.noteParticlePass = new NoteParticlePass(gl);
     this.ripplePass = new RipplePass(gl, config.maxRipples);
     this.brightPass = new BrightExtractPass(gl);
     this.blurPass = new BlurPass(gl);
@@ -113,6 +116,7 @@ export class WebGLVisualEngine implements IVisualBackend {
   update(frame: VisualFrameInput): void {
     if (this.contextLost) return;
     this.particlePass.update(frame);
+    this.noteParticlePass.update(frame);
     this.ripplePass.update(frame.dt);
     // Trail "points" are conceptual — the accumulation texture handles it
     this.trailPointCount = Math.round(frame.mouse.speed * 0.5 + 20);
@@ -159,6 +163,9 @@ export class WebGLVisualEngine implements IVisualBackend {
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFBO.framebuffer);
     gl.viewport(0, 0, w, h);
     this.particlePass.render(this._lastFrame);
+
+    // ── 3b. Note particles → sceneFBO (additive) ──
+    this.noteParticlePass.render(this._lastFrame);
 
     // ── 4. Ripples → sceneFBO (additive) ──
     this.ripplePass.render(this._lastFrame);
@@ -215,6 +222,7 @@ export class WebGLVisualEngine implements IVisualBackend {
     this.flowerPass.destroy();
     this.trailPass.destroy();
     this.particlePass.destroy();
+    this.noteParticlePass.destroy();
     this.ripplePass.destroy();
     this.brightPass.destroy();
     this.blurPass.destroy();
