@@ -111,9 +111,22 @@ const App: React.FC = () => {
       if (e.key === 'r' && e.shiftKey) {
         actions.playLoopReverse();
       }
+      if (e.key === ' ') {
+        e.preventDefault();
+        actions.setStarfieldWarp(true);
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === ' ') {
+        actions.setStarfieldWarp(false);
+      }
     };
     window.addEventListener('keydown', handleKey);
-    return () => window.removeEventListener('keydown', handleKey);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKey);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
   }, [actions]);
 
   // In performance mode: hide panel
@@ -205,6 +218,8 @@ const App: React.FC = () => {
           <kbd style={styles.kbd}>Y</kbd> symmetry
           {' '}
           <kbd style={styles.kbd}>Shift+R</kbd> reverse
+          {' '}
+          <kbd style={styles.kbd}>Space</kbd> warp
         </div>
       )}
     </div>

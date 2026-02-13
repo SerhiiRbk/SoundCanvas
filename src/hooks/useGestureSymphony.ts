@@ -101,6 +101,7 @@ export interface GestureSymphonyActions {
   cycleSymmetry: () => void;
   triggerCosmicZoom: () => void;
   playLoopReverse: () => void;
+  setStarfieldWarp: (on: boolean) => void;
 }
 
 export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
@@ -307,10 +308,12 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
           // Combine with Math.random for unpredictable behaviour
           const rng = () => (Math.random() + cpuEntropy) % 1;
 
-          // Humanized interval: slower and more spacious for mandala meditation
-          // 600–1000ms gaps let notes breathe and create a calmer feel
-          const BASE_INTERVAL = 750;
-          const jitter = (rng() - 0.5) * 300; // ±150ms
+          // Humanized interval: depends on path mode
+          // Meditation: 600–1000ms gaps (calm, spacious)
+          // Eternity: 120–300ms gaps (energetic, dense)
+          const isEternity = meditationRef.current.getPathMode() === 'eternity';
+          const BASE_INTERVAL = isEternity ? 180 : 750;
+          const jitter = (rng() - 0.5) * (isEternity ? 120 : 300);
           const interval = BASE_INTERVAL + jitter;
 
           if (now - meditationLastNoteRef.current >= interval) {
@@ -321,8 +324,8 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
             const chordPCs = Array.from(chord.pitchClasses);
             const scalePCs = Array.from(scale.pitchClasses);
 
-            // ── Random rest (breathing silence): ~25% chance for spacious mandala meditation ──
-            const isRest = rng() < 0.25;
+            // ── Random rest (breathing silence): meditation ~25%, eternity ~5% ──
+            const isRest = rng() < (isEternity ? 0.05 : 0.25);
             if (isRest) {
               // Still update visuals during rest
               visual.updateCursor({ x: cursor.x, y: cursor.y, velocity: cursor.velocity * 0.3, pitch: prevPitchRef.current });
@@ -335,11 +338,13 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
             } else {
               // ── Pitch generation with entropy ──
 
-              // Base pitch from position
-              let rawPitch = 48 + (cursor.x / canvas.width) * 36;
+              // Base pitch from position — eternity uses wider range
+              let rawPitch = isEternity
+                ? 36 + (cursor.x / canvas.width) * 48   // 3 octaves
+                : 48 + (cursor.x / canvas.width) * 36;  // 3 octaves from C3
 
-              // Random octave shift: ~12% chance to jump ±1 octave
-              if (rng() < 0.12) {
+              // Random octave shift: eternity ~25%, meditation ~12%
+              if (rng() < (isEternity ? 0.25 : 0.12)) {
                 rawPitch += rng() < 0.5 ? 12 : -12;
               }
 
@@ -364,17 +369,21 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
               const pitch = result.selectedPitch;
               const yFrac = cursor.y / canvas.height;
 
-              // Velocity with entropy: very soft 20..50 range
-              const velocity = Math.round(20 + yFrac * 15 + rng() * 15);
+              // Velocity: eternity is louder and more dynamic
+              const velocity = isEternity
+                ? Math.round(55 + yFrac * 30 + rng() * 40)   // 55..125
+                : Math.round(20 + yFrac * 15 + rng() * 15);  // 20..50
 
-              // Duration with entropy: 1.0..3.0s (long, spacious, meditative)
-              const duration = 1.0 + rng() * 2.0;
+              // Duration: eternity is shorter and punchier
+              const duration = isEternity
+                ? 0.15 + rng() * 0.5   // 0.15..0.65s
+                : 1.0 + rng() * 2.0;   // 1.0..3.0s
 
               prevPrevPitchRef.current = prevPitchRef.current;
               prevPitchRef.current = pitch;
 
-              // ── Grace note: ~10% chance, quick note 1-2 scale steps below ──
-              if (rng() < 0.10 && scalePCs.length > 0) {
+              // ── Grace note: eternity ~25%, meditation ~10% ──
+              if (rng() < (isEternity ? 0.25 : 0.10) && scalePCs.length > 0) {
                 const graceOffset = scalePCs.length >= 2 ? (rng() < 0.5 ? 1 : 2) : 1;
                 const gracePitch = pitch - graceOffset;
                 synthRef.current.playNote(gracePitch, Math.round(velocity * 0.5), 0.08);
@@ -406,26 +415,28 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
               }
             }
 
-            // Advance harmony (slower: count beats at meditation rate)
+            // Advance harmony — eternity advances faster (every 16 notes vs 8)
             beatCounterRef.current++;
-            if (beatCounterRef.current >= 8) {
+            const beatsPerBar = isEternity ? 16 : 8;
+            if (beatCounterRef.current >= beatsPerBar) {
               beatCounterRef.current = 0;
               barCounterRef.current++;
               const chordChanged = harmonyRef.current.advanceBar();
               if (chordChanged) {
                 const newChord = harmonyRef.current.getCurrentChord();
                 const newChordPitches = Array.from(newChord.pitchClasses).map((pc) => pc + 60);
-                synthRef.current.playChord(newChordPitches, 3.5);
-                synthRef.current.playBass(newChord.root + 36, 3.5);
+                const chordDur = isEternity ? 1.5 : 3.5;
+                synthRef.current.playChord(newChordPitches, chordDur);
+                synthRef.current.playBass(newChord.root + 36, chordDur);
                 synthRef.current.setMusicalContext(
                   newChord.pitchClasses as Set<number>,
                   scale.pitchClasses as Set<number>,
                   newChord.root,
                 );
 
-                // Singing bowl on every chord change for meditative pulse
+                // Singing bowl on every chord change
                 const bowlNote = newChord.root + 72;
-                synthRef.current.playMeditationPerc('bowl', bowlNote, 0.3);
+                synthRef.current.playMeditationPerc('bowl', bowlNote, isEternity ? 0.5 : 0.3);
                 visual.onMeditationPerc(cursor.x, cursor.y);
 
                 setState((s) => ({ ...s, currentChord: newChord.name, currentPitch: prevPitchRef.current }));
@@ -1055,9 +1066,9 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
       meditationLastNoteRef.current = 0;
       beatCounterRef.current = 0;
 
-      // Eternity uses a dreamy, slower tempo and lydian mode for ethereal quality
-      synthRef.current?.setBPM(66);
-      visualRef.current?.setMelodicStability(0.95);
+      // Eternity uses energetic tempo and lydian mode for bright, soaring quality
+      synthRef.current?.setBPM(110);
+      visualRef.current?.setMelodicStability(0.7);
       visualRef.current?.setMeditationMode(true);
       visualRef.current?.setEternityMode(true);
 
@@ -1077,8 +1088,8 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
         ...s,
         meditationMode: false,
         eternityMode: true,
-        bpm: 66,
-        melodicStability: 0.95,
+        bpm: 110,
+        melodicStability: 0.7,
         mode: 'pentatonicMajor',
         progression: 'I-vi-IV-V',
       }));
@@ -1189,6 +1200,10 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
   const playLoopReverse = useCallback(() => {
     loopRef.current?.playReverse();
     setState((s) => ({ ...s, loopState: 'playing' }));
+  }, []);
+
+  const setStarfieldWarp = useCallback((on: boolean) => {
+    visualRef.current?.setStarfieldWarp(on);
   }, []);
 
   const setVisualMode = useCallback((mode: VisualModeName) => {
@@ -1414,6 +1429,7 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
       cycleSymmetry,
       triggerCosmicZoom,
       playLoopReverse,
+      setStarfieldWarp,
     } satisfies GestureSymphonyActions,
     handleMouseMove,
     handleMouseDown,
