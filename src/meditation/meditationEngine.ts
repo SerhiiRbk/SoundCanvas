@@ -21,28 +21,29 @@ export interface MeditationCursor {
 export type PathMode = 'meditation' | 'eternity';
 
 /* ══════════════════════════════════════════════
-   Constants — Meditation path
+   Constants — Meditation mandala path (spirograph)
    ══════════════════════════════════════════════ */
 
-const W1 = 0.13;
-const W2 = 0.21;
-const W3 = 0.07;
-const W4 = 0.11;
-const W5 = 0.031;
-const W6 = 0.047;
+/** Spirograph: hypotrochoid  x(t) = (R-r)·cos(t) + d·cos(t·(R-r)/r)
+ *                            y(t) = (R-r)·sin(t) - d·sin(t·(R-r)/r)
+ * R=8, r=3 → 8 cusps, closes after 3 full turns (t = 6π). */
+const SPIRO_R = 8;
+const SPIRO_r = 3;
+const SPIRO_D_BASE = 3.0;
+const SPIRO_D_DRIFT = 0.6;      // d oscillates ±0.6 for evolution
+const SPIRO_D_DRIFT_SPEED = 0.018;
 
-const DRIFT1 = 0.0091;
-const DRIFT2 = 0.0073;
+/** Angular speed — very slow so the mandala unfolds gracefully.
+ *  Full figure (~6π) takes about 2.5 minutes. */
+const SPIRO_SPEED = 0.13;
 
-const AMP_PRIMARY = 0.32;
-const AMP_SECONDARY = 0.14;
-const AMP_TERTIARY = 0.06;
+/** Mandala radius as fraction of min(canvasW, canvasH) / 2.
+ *  0.82 fills nearly the entire screen. */
+const SPIRO_SCALE = 0.82;
 
-const BREATH_SPEED = 0.04;
-const BREATH_DEPTH = 0.15;
-
-const WANDER_SPEED = 0.02;
-const WANDER_MAX = 0.12;
+/** Gentle breathing modulation on the whole pattern */
+const SPIRO_BREATH_SPEED = 0.035;
+const SPIRO_BREATH_DEPTH = 0.04;
 
 /* ══════════════════════════════════════════════
    Constants — Eternity (lemniscate) path
@@ -72,21 +73,16 @@ const LEMNI_PERTURB_W2 = 0.53;
 
 export class MeditationEngine {
   private time = 0;
-  private phase1 = 0;
-  private phase2 = 0;
-  private wanderX = 0;
-  private wanderY = 0;
-  private wanderDx = 0;
-  private wanderDy = 0;
   private prevX = 0;
   private prevY = 0;
+
+  /** Phase offset so each session starts at a different point */
+  private phaseOffset = 0;
 
   private _pathMode: PathMode = 'meditation';
 
   constructor() {
-    const a = Math.random() * Math.PI * 2;
-    this.wanderDx = Math.cos(a) * WANDER_SPEED;
-    this.wanderDy = Math.sin(a) * WANDER_SPEED;
+    this.phaseOffset = Math.random() * Math.PI * 2;
   }
 
   /** Switch the path algorithm */
@@ -101,13 +97,7 @@ export class MeditationEngine {
   /** Reset internal time (call when entering any autonomous mode) */
   reset(): void {
     this.time = 0;
-    this.phase1 = Math.random() * Math.PI * 2;
-    this.phase2 = Math.random() * Math.PI * 2;
-    this.wanderX = 0;
-    this.wanderY = 0;
-    const a = Math.random() * Math.PI * 2;
-    this.wanderDx = Math.cos(a) * WANDER_SPEED;
-    this.wanderDy = Math.sin(a) * WANDER_SPEED;
+    this.phaseOffset = Math.random() * Math.PI * 2;
   }
 
   /**
@@ -133,47 +123,34 @@ export class MeditationEngine {
     return { x: pos.x, y: pos.y, velocity };
   }
 
-  /* ── Meditation path (Lissajous harmonics) ── */
+  /* ── Meditation path (spirograph / hypotrochoid mandala) ── */
 
   private tickMeditation(_dt: number, canvasW: number, canvasH: number): { x: number; y: number } {
     const t = this.time;
+    const theta = t * SPIRO_SPEED + this.phaseOffset;
 
-    this.phase1 += DRIFT1 * _dt;
-    this.phase2 += DRIFT2 * _dt;
+    const cx = canvasW * 0.5;
+    const cy = canvasH * 0.5;
 
-    this.wanderX += this.wanderDx * _dt;
-    this.wanderY += this.wanderDy * _dt;
+    // Slowly evolving pen distance for pattern variety
+    const d = SPIRO_D_BASE + Math.sin(t * SPIRO_D_DRIFT_SPEED) * SPIRO_D_DRIFT;
 
-    const halfW = canvasW * 0.5;
-    const halfH = canvasH * 0.5;
-    if (Math.abs(this.wanderX) > halfW * WANDER_MAX) {
-      this.wanderDx = -this.wanderDx + (Math.random() - 0.5) * 0.005;
-    }
-    if (Math.abs(this.wanderY) > halfH * WANDER_MAX) {
-      this.wanderDy = -this.wanderDy + (Math.random() - 0.5) * 0.005;
-    }
+    // Hypotrochoid formula
+    const Rr = SPIRO_R - SPIRO_r; // = 5
+    const ratio = Rr / SPIRO_r;   // = 5/3
 
-    const breath = 1 + Math.sin(t * BREATH_SPEED) * BREATH_DEPTH;
+    const rawX = Rr * Math.cos(theta) + d * Math.cos(theta * ratio);
+    const rawY = Rr * Math.sin(theta) - d * Math.sin(theta * ratio);
 
-    const cx = halfW + this.wanderX;
-    const cy = halfH + this.wanderY;
+    // Normalize: maximum extent is (R-r) + d
+    const maxExtent = Rr + SPIRO_D_BASE + SPIRO_D_DRIFT;
+    const scale = Math.min(canvasW, canvasH) * 0.5 * SPIRO_SCALE / maxExtent;
 
-    const ax1 = halfW * AMP_PRIMARY * breath;
-    const ay1 = halfH * AMP_PRIMARY * breath;
-    const ax2 = halfW * AMP_SECONDARY * breath;
-    const ay2 = halfH * AMP_SECONDARY * breath;
-    const ax3 = halfW * AMP_TERTIARY;
-    const ay3 = halfH * AMP_TERTIARY;
+    // Gentle breathing
+    const breath = 1 + Math.sin(t * SPIRO_BREATH_SPEED) * SPIRO_BREATH_DEPTH;
 
-    const x = cx
-      + ax1 * Math.sin(W1 * t + this.phase1)
-      + ax2 * Math.sin(W3 * t + this.phase1 * 0.7)
-      + ax3 * Math.sin(W5 * t);
-
-    const y = cy
-      + ay1 * Math.sin(W2 * t + this.phase2)
-      + ay2 * Math.sin(W4 * t + this.phase2 * 0.6)
-      + ay3 * Math.cos(W6 * t);
+    const x = cx + rawX * scale * breath;
+    const y = cy + rawY * scale * breath;
 
     return { x, y };
   }

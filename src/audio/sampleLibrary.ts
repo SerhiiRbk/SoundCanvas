@@ -133,6 +133,7 @@ export const INSTRUMENT_SAMPLE_MAP: Record<string, SampleDef | null> = {
   'pan-flute':  FLUTE_SAMPLES,      // closest available wind
   'flute':      FLUTE_SAMPLES,
   'oboe':       BASSOON_SAMPLES,    // closest double-reed
+  'harmonium':  BASSOON_SAMPLES,    // closest reed instrument
 };
 
 /**

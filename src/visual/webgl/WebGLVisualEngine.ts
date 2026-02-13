@@ -17,6 +17,7 @@
 import type { IVisualBackend, VisualConfig, VisualFrameInput, NoteVisualEvent } from '../types';
 import { createFBO, destroyFBO, type FBO } from './gl';
 import { BackgroundPass } from './passes/BackgroundPass';
+import { ElectricFlowerPass } from './passes/ElectricFlowerPass';
 import { TrailAccumulationPass } from './passes/TrailAccumulationPass';
 import { ParticlePass } from './passes/ParticlePass';
 import { RipplePass } from './passes/RipplePass';
@@ -36,6 +37,7 @@ export class WebGLVisualEngine implements IVisualBackend {
 
   /* ── Passes ── */
   private bgPass: BackgroundPass;
+  private flowerPass: ElectricFlowerPass;
   private trailPass: TrailAccumulationPass;
   private particlePass: ParticlePass;
   private ripplePass: RipplePass;
@@ -85,6 +87,7 @@ export class WebGLVisualEngine implements IVisualBackend {
 
     // Init passes
     this.bgPass = new BackgroundPass(gl);
+    this.flowerPass = new ElectricFlowerPass(gl);
     this.trailPass = new TrailAccumulationPass(gl, floatRT);
     this.particlePass = new ParticlePass(gl, config.maxParticles);
     this.ripplePass = new RipplePass(gl, config.maxRipples);
@@ -141,10 +144,13 @@ export class WebGLVisualEngine implements IVisualBackend {
     // ── 1. Background → sceneFBO ──
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.sceneFBO.framebuffer);
     gl.viewport(0, 0, w, h);
-    gl.clearColor(0.02, 0.02, 0.063, 1);
+    gl.clearColor(0.1, 0.2, 0.3, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
 
     this.bgPass.render(this._lastFrame);
+
+    // ── 1b. Electric Flower → sceneFBO (additive) ──
+    this.flowerPass.render(this._lastFrame);
 
     // ── 2. Trail accumulation → trailTexture ──
     const trailTex = this.trailPass.render(this._lastFrame, config);
@@ -206,6 +212,7 @@ export class WebGLVisualEngine implements IVisualBackend {
 
   destroy(): void {
     this.bgPass.destroy();
+    this.flowerPass.destroy();
     this.trailPass.destroy();
     this.particlePass.destroy();
     this.ripplePass.destroy();

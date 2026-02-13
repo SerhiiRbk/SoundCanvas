@@ -85,11 +85,10 @@ ${NOISE_FUNC}
 
 void main() {
   vec2 uv = vUV;
-  // Mouse in UV space (flip y for WebGL)
   vec2 mouseUV = vec2(uMouse.x / uResolution.x, uMouse.y / uResolution.y);
 
-  // Dark base colour
-  vec3 bg = vec3(0.020, 0.020, 0.063);
+  // Dark base colour (matches Electric Flower original)
+  vec3 bg = vec3(0.10, 0.20, 0.30);
 
   // Radial gradient at cursor
   float d = distance(uv, mouseUV);
@@ -104,6 +103,54 @@ void main() {
   bg += n;
 
   fragColor = vec4(bg, 1.0);
+}
+`;
+
+/* ══════════════════════════════════════════════
+   1b. ELECTRIC FLOWER PASS (geometry-based)
+   Faithful reproduction of the WebGL Electric Flower
+   (webglsamples.org/electricflower/electricflower.html).
+   Renders a "flared cube" geometry with per-vertex
+   twist, additive blending, and HSV-cycling colours.
+   ══════════════════════════════════════════════ */
+
+export const FLOWER_VERT = /* glsl */ `#version 300 es
+precision highp float;
+
+in vec3 aPosition;
+in vec2 aTexCoord;
+
+uniform mat4 uWorldViewProj;
+uniform float uTime;
+uniform vec4 uColor;
+uniform vec4 uColor2;
+
+out vec4 vColor;
+
+vec3 rotX(vec3 v, float a) { float s=sin(a),c=cos(a); return vec3(v.x, c*v.y+s*v.z, -s*v.y+c*v.z); }
+vec3 rotY(vec3 v, float a) { float s=sin(a),c=cos(a); return vec3(c*v.x+s*v.z, v.y, -s*v.x+c*v.z); }
+vec3 rotZ(vec3 v, float a) { float s=sin(a),c=cos(a); return vec3(c*v.x+s*v.y, -s*v.x+c*v.y, v.z); }
+
+void main() {
+  float tc = aTexCoord.x;
+  vColor = mix(uColor, uColor2, tc);
+  vColor *= vColor.w;
+
+  vec3 pos = rotZ(rotX(rotY(aPosition,
+    -uTime + tc * 6.1), -uTime * 0.6 + tc * 8.1), -uTime * 0.7 + tc * 7.12);
+
+  gl_Position = uWorldViewProj * vec4(pos, 1.0);
+}
+`;
+
+export const FLOWER_FRAG = /* glsl */ `#version 300 es
+precision highp float;
+
+in vec4 vColor;
+out vec4 fragColor;
+
+void main() {
+  fragColor = vColor;
 }
 `;
 

@@ -58,6 +58,20 @@ export interface VisualConfig {
   flowerEnabled: boolean;
   particleWavesEnabled: boolean;
 
+  /* ── Phase 4-6 effect toggles ── */
+  lightWarpEnabled: boolean;
+  constellationsEnabled: boolean;
+  chordGeometryEnabled: boolean;
+  shockwaveEnabled: boolean;
+  lightEchoEnabled: boolean;
+  depthParallaxEnabled: boolean;
+  cadenceLockEnabled: boolean;
+  modulationPortalEnabled: boolean;
+  harmonyOrbitEnabled: boolean;
+  pulseLockEnabled: boolean;
+  symmetryMode: 'off' | 'horizontal' | 'radial4' | 'radial8';
+  cosmicZoomEnabled: boolean;
+
   /* ── Aesthetic ── */
   colorSaturation: number;
   colorLightness: number;

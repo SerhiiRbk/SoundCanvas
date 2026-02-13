@@ -203,6 +203,69 @@ export class VisualEngine {
     return this.config.particleWavesEnabled;
   }
 
+  /* ── Phase 4-6 effect toggles ── */
+
+  setEffect(name: string, on: boolean): void {
+    const key = `${name}Enabled` as keyof VisualConfig;
+    (this.config as Record<string, unknown>)[key] = on;
+    this.backend?.setConfig({ [key]: on });
+  }
+
+  isEffectEnabled(name: string): boolean {
+    return !!(this.config as Record<string, unknown>)[`${name}Enabled`];
+  }
+
+  setSymmetryMode(mode: 'off' | 'horizontal' | 'radial4' | 'radial8'): void {
+    this.config.symmetryMode = mode;
+    this.backend?.setConfig({ symmetryMode: mode });
+  }
+
+  cycleSymmetry(): string {
+    const modes: Array<VisualConfig['symmetryMode']> = ['off', 'horizontal', 'radial4', 'radial8'];
+    const idx = modes.indexOf(this.config.symmetryMode);
+    const next = modes[(idx + 1) % modes.length];
+    this.setSymmetryMode(next);
+    return next;
+  }
+
+  /** Trigger visual effects for a chord change */
+  triggerChordVisual(quality: string, rootPitch: number, degree: number): void {
+    const canvas = this.backend as CanvasVisualEngine;
+    if ('triggerChord' in canvas) {
+      canvas.triggerChord(quality as import('../music/harmonyEngine').ChordQuality, rootPitch, degree);
+    }
+  }
+
+  /** Trigger cadence lock visual */
+  triggerCadenceVisual(): void {
+    const canvas = this.backend as CanvasVisualEngine;
+    if ('triggerCadence' in canvas) canvas.triggerCadence();
+  }
+
+  /** Trigger modulation portal visual */
+  triggerModulationVisual(oldRoot: number, newRoot: number): void {
+    const canvas = this.backend as CanvasVisualEngine;
+    if ('triggerModulation' in canvas) canvas.triggerModulation(oldRoot, newRoot);
+  }
+
+  /** Trigger a shockwave at position */
+  triggerShockwave(x: number, y: number, intensity: number): void {
+    const canvas = this.backend as CanvasVisualEngine;
+    if ('triggerShockwave' in canvas) canvas.triggerShockwave(x, y, intensity);
+  }
+
+  /** Start cosmic zoom animation */
+  triggerCosmicZoom(onComplete?: () => void): void {
+    const canvas = this.backend as CanvasVisualEngine;
+    if ('triggerCosmicZoom' in canvas) canvas.triggerCosmicZoom(onComplete);
+  }
+
+  /** Update pulse lock rhythm data */
+  setPulseLockRhythm(strength: number, period: number): void {
+    const canvas = this.backend as CanvasVisualEngine;
+    if ('getPulseLock' in canvas) canvas.getPulseLock().setRhythm(strength, period);
+  }
+
   setMeditationMode(on: boolean): void {
     this.meditation.setEnabled(on);
   }

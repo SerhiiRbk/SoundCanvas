@@ -10,6 +10,8 @@ import { GestureAnalyzer } from '../gesture/gestureAnalyzer';
 import { SynthEngine, INSTRUMENT_PRESETS, ENSEMBLE_ROLES, ENSEMBLE_ROLE_LABELS, type SamplerState, type EnsembleRole } from '../audio/synthEngine';
 import { RecordingEngine, type RecordingState } from '../audio/recordingEngine';
 import { LoopEngine } from '../audio/loopEngine';
+import { FreezeEngine } from '../audio/freezeEngine';
+import { CinematicDrop } from '../audio/cinematicDrop';
 import { VisualEngine } from '../visual/visualEngine';
 import { HarmonyEngine, PROGRESSIONS } from '../music/harmonyEngine';
 import { melodicCorrection } from '../music/melodicCorrection';
@@ -18,10 +20,13 @@ import {
   DEFAULT_BPM,
   DEFAULT_MELODIC_STABILITY,
   QUANTIZE_DIVISION,
+  CURSOR_MIN_VELOCITY,
 } from '../config';
 import type { VisualModeName } from '../composer/composerTypes';
 import type { ScenePreset } from '../config/scenePresets';
 import { MeditationEngine, type PathMode } from '../meditation/meditationEngine';
+import { EmotionMapper, type Emotion } from '../ai/emotionMapper';
+import { CinematicTrailer, type TrailerPhase } from '../ai/cinematicTrailer';
 
 export interface EnsembleVoiceInfo {
   instrumentId: string;
@@ -56,6 +61,12 @@ export interface GestureSymphonyState {
   gpuEffects: boolean;
   electricFlower: boolean;
   particleWaves: boolean;
+  /* Phase 4-6 effects */
+  freezeMode: boolean;
+  emotion: Emotion;
+  trailerPhase: TrailerPhase;
+  symmetryMode: string;
+  effectToggles: Record<string, boolean>;
 }
 
 export interface GestureSymphonyActions {
@@ -84,6 +95,12 @@ export interface GestureSymphonyActions {
   setGpuEffects: (on: boolean) => void;
   setElectricFlower: (on: boolean) => void;
   setParticleWaves: (on: boolean) => void;
+  toggleEffect: (name: string) => void;
+  toggleFreeze: () => void;
+  triggerCinematicTrailer: () => void;
+  cycleSymmetry: () => void;
+  triggerCosmicZoom: () => void;
+  playLoopReverse: () => void;
 }
 
 export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement | null>) {
@@ -125,6 +142,22 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
     gpuEffects: true,
     electricFlower: true,
     particleWaves: false,
+    freezeMode: false,
+    emotion: 'calm' as Emotion,
+    trailerPhase: 'idle' as TrailerPhase,
+    symmetryMode: 'off',
+    effectToggles: {
+      lightWarp: false,
+      constellations: false,
+      chordGeometry: false,
+      shockwave: false,
+      lightEcho: false,
+      depthParallax: false,
+      cadenceLock: false,
+      modulationPortal: false,
+      harmonyOrbit: false,
+      pulseLock: false,
+    },
   });
 
   const stateRef = useRef(state);
@@ -136,6 +169,12 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
   // Recording engine
   const recorderRef = useRef<RecordingEngine | null>(null);
   const recElapsedRef = useRef<number>(0);
+
+  // New engines
+  const freezeRef = useRef<FreezeEngine>(new FreezeEngine());
+  const dropRef = useRef<CinematicDrop>(new CinematicDrop());
+  const emotionRef = useRef<EmotionMapper>(new EmotionMapper());
+  const trailerRef = useRef<CinematicTrailer>(new CinematicTrailer());
 
   // Meditation engine
   const meditationRef = useRef<MeditationEngine>(new MeditationEngine());
@@ -173,6 +212,19 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
     // Set initial musical context for ensemble voice-leading
     const initChord = harmony.getCurrentChord();
     synth.setMusicalContext(initChord.pitchClasses as Set<number>, scale.pitchClasses as Set<number>, initChord.root);
+
+    // Wire harmony events → visual triggers
+    harmony.onEvent((ev) => {
+      if (ev.type === 'cadence') {
+        visual.triggerCadenceVisual();
+      } else if (ev.type === 'modulation' && ev.oldRoot !== undefined && ev.newRoot !== undefined) {
+        visual.triggerModulationVisual(ev.oldRoot, ev.newRoot);
+      }
+    });
+    harmony.setModulationEnabled(true);
+
+    // Initialize freeze engine
+    freezeRef.current.init(synth.getMasterGain()! as unknown as import('tone').InputNode);
 
     // Wire loop playback to synth + visual
     loop.onNote((event) => {
@@ -255,9 +307,10 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
           // Combine with Math.random for unpredictable behaviour
           const rng = () => (Math.random() + cpuEntropy) % 1;
 
-          // Humanized interval: 300–500ms with jitter from entropy
-          const BASE_INTERVAL = 350;
-          const jitter = (rng() - 0.5) * 200; // ±100ms
+          // Humanized interval: slower and more spacious for mandala meditation
+          // 600–1000ms gaps let notes breathe and create a calmer feel
+          const BASE_INTERVAL = 750;
+          const jitter = (rng() - 0.5) * 300; // ±150ms
           const interval = BASE_INTERVAL + jitter;
 
           if (now - meditationLastNoteRef.current >= interval) {
@@ -268,8 +321,8 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
             const chordPCs = Array.from(chord.pitchClasses);
             const scalePCs = Array.from(scale.pitchClasses);
 
-            // ── Random rest (breathing silence): ~18% chance ──
-            const isRest = rng() < 0.18;
+            // ── Random rest (breathing silence): ~25% chance for spacious mandala meditation ──
+            const isRest = rng() < 0.25;
             if (isRest) {
               // Still update visuals during rest
               visual.updateCursor({ x: cursor.x, y: cursor.y, velocity: cursor.velocity * 0.3, pitch: prevPitchRef.current });
@@ -311,11 +364,11 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
               const pitch = result.selectedPitch;
               const yFrac = cursor.y / canvas.height;
 
-              // Velocity with entropy: 30..65 range with gentle fluctuation
-              const velocity = Math.round(30 + yFrac * 20 + rng() * 15);
+              // Velocity with entropy: very soft 20..50 range
+              const velocity = Math.round(20 + yFrac * 15 + rng() * 15);
 
-              // Duration with entropy: 0.6..1.8s (longer = more meditative)
-              const duration = 0.6 + rng() * 1.2;
+              // Duration with entropy: 1.0..3.0s (long, spacious, meditative)
+              const duration = 1.0 + rng() * 2.0;
 
               prevPrevPitchRef.current = prevPitchRef.current;
               prevPitchRef.current = pitch;
@@ -386,6 +439,49 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
         lastMedTime = performance.now();
       }
 
+      // ── Curvature → chord swell ──
+      if (gestureRef.current) {
+        const curvature = gestureRef.current.getCurvature();
+        if (curvature > 0.05 && harmonyRef.current) {
+          const ch = harmonyRef.current.getCurrentChord();
+          const chPitches = Array.from(ch.pitchClasses).map((pc) => pc + 60);
+          synthRef.current?.setChordSwellIntensity(Math.min(1, curvature * 5), chPitches);
+        } else {
+          synthRef.current?.setChordSwellIntensity(0);
+        }
+
+        // Rhythm → ghost arpeggiator
+        const rhythmStr = gestureRef.current.getRhythmStrength();
+        const period = gestureRef.current.getDominantPeriod();
+        if (rhythmStr > 0.6 && !synthRef.current?.isGhostActive()) {
+          synthRef.current?.startGhostArpeggio(period);
+        } else if (rhythmStr < 0.4 && synthRef.current?.isGhostActive()) {
+          synthRef.current?.stopGhostArpeggio();
+        }
+
+        // Pulse lock visual
+        visualRef.current?.setPulseLockRhythm(rhythmStr, period);
+
+        // Emotion mapping
+        const emotionState = emotionRef.current.update(
+          gestureRef.current.getEnergy(),
+          1 - Math.min(1, Math.abs(gestureRef.current.getCurvature()) * 10),
+          rhythmStr,
+          gestureRef.current.getChaosLevel(),
+        );
+        setState((s) => s.emotion !== emotionState.emotion ? { ...s, emotion: emotionState.emotion } : s);
+      }
+
+      // Shadow melody processing (timed buffer)
+      if (synthRef.current?.isShadowEnabled()) {
+        // processShadowBuffer is called internally by playNote
+      }
+
+      // Freeze modulation
+      if (freezeRef.current.isFrozen()) {
+        freezeRef.current.modulate(performance.now() / 1000);
+      }
+
       const debug = visual.getDebugInfo();
       const samplerState = synth.getSamplerState();
       const recElapsed = recorderRef.current?.getDuration() ?? 0;
@@ -448,6 +544,17 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
         return;
       }
 
+      // ── Velocity gate: don't trigger sound when cursor is idle / barely moving ──
+      if (gestureState.velocity < CURSOR_MIN_VELOCITY) {
+        visualRef.current.updateCursor({
+          x,
+          y,
+          velocity: gestureState.velocity,
+          pitch: prevPitchRef.current,
+        });
+        return;
+      }
+
       lastQuantizedTimeRef.current = now;
 
       // Beat & bar tracking for harmony
@@ -479,6 +586,11 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
             chord.root,
           );
 
+          // Trigger chord visuals
+          const quality = harmonyRef.current.getCurrentChordQuality();
+          const degree = harmonyRef.current.getCurrentDegree();
+          visualRef.current?.triggerChordVisual(quality, chord.root, degree);
+
           setState((s) => ({ ...s, currentChord: chord.name }));
         }
       }
@@ -486,6 +598,7 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
       // Melodic correction
       const scale = buildScale(stateRef.current.rootNote, stateRef.current.mode);
       const chord = harmonyRef.current.getCurrentChord();
+      const chaosLevel = gestureRef.current.getChaosLevel();
 
       const result = melodicCorrection({
         pRaw: rawMapping.pRaw,
@@ -494,6 +607,7 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
         scale,
         chord,
         m: melodicStability,
+        chaosLevel,
       });
 
       const pitch = result.selectedPitch;
@@ -508,6 +622,12 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
 
       // Play note
       synthRef.current.playNote(pitch, velocity, duration);
+
+      // Track note onset for rhythm detection
+      gestureRef.current.recordNoteOnset(now);
+
+      // Spatial audio: position the sound in 3D space
+      synthRef.current.setSpatialPosition(x, y, canvas.width, canvas.height);
 
       // Right-button held → continuously strum chord tones alongside lead
       if (mouseButtonRef.current.has(2)) {
@@ -527,6 +647,27 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
         pitch,
       });
       visualRef.current.onNoteOn(x, y, pitch, velocity);
+
+      // Cinematic drop detection (energy burst)
+      if (gestureRef.current.isSuddenBurst() && dropRef.current.canTrigger()) {
+        const mg = synthRef.current.getMasterGain();
+        const fl = synthRef.current.getFilter();
+        if (mg && fl) {
+          dropRef.current.trigger(mg, fl, {
+            onMute: () => visualRef.current?.triggerShockwave(x, y, 0.3),
+            onDrop: () => {
+              visualRef.current?.triggerShockwave(x, y, 1.0);
+              const ch = harmonyRef.current?.getCurrentChord();
+              if (ch) {
+                const chPitches = Array.from(ch.pitchClasses).map((pc) => pc + 60);
+                synthRef.current?.playChord(chPitches, 2);
+                synthRef.current?.playBass(ch.root + 36, 2);
+              }
+            },
+            onFinish: () => {},
+          });
+        }
+      }
 
       // Loop recording
       if (loopRef.current) {
@@ -567,6 +708,7 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
         scale,
         chord,
         m: melodicStability,
+        chaosLevel: gestureRef.current?.getChaosLevel() ?? 0,
       });
 
       const pitch = result.selectedPitch;
@@ -821,9 +963,9 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
         progression: stateRef.current.progression,
       };
 
-      // Apply meditative parameters
-      synthRef.current?.setBPM(72);
-      visualRef.current?.setMelodicStability(0.92);
+      // Apply meditative parameters — slow, calm
+      synthRef.current?.setBPM(60);
+      visualRef.current?.setMelodicStability(0.95);
       visualRef.current?.setMeditationMode(true);
 
       // Switch to pentatonic minor for consonant intervals
@@ -847,8 +989,8 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
       setState((s) => ({
         ...s,
         meditationMode: true,
-        bpm: 72,
-        melodicStability: 0.92,
+        bpm: 60,
+        melodicStability: 0.95,
         mode: 'pentatonicMinor',
         progression: 'I-vi-IV-V',
       }));
@@ -992,6 +1134,63 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
     setState((s) => ({ ...s, particleWaves: on }));
   }, []);
 
+  // ─── Phase 4-6 effect toggles ───
+  const toggleEffect = useCallback((name: string) => {
+    const current = visualRef.current?.isEffectEnabled(name) ?? false;
+    const next = !current;
+    visualRef.current?.setEffect(name, next);
+    setState((s) => ({
+      ...s,
+      effectToggles: { ...s.effectToggles, [name]: next },
+    }));
+  }, []);
+
+  const toggleFreeze = useCallback(() => {
+    const mg = synthRef.current?.getMasterGain();
+    if (!mg) return;
+    freezeRef.current.toggle(mg as unknown as import('tone').ToneAudioNode);
+    const frozen = freezeRef.current.isFrozen();
+    setState((s) => ({ ...s, freezeMode: frozen }));
+  }, []);
+
+  const triggerCinematicTrailer = useCallback(() => {
+    if (trailerRef.current.isActive()) {
+      trailerRef.current.stop();
+      setState((s) => ({ ...s, trailerPhase: 'idle' }));
+      return;
+    }
+    const canvas = canvasRef.current;
+    trailerRef.current.start({
+      setBPM: (bpm) => synthRef.current?.setBPM(bpm),
+      setStability: (m) => visualRef.current?.setMelodicStability(m),
+      setFilterCutoff: (v) => synthRef.current?.setFilterCutoff(v),
+      playChord: (pitches, dur) => synthRef.current?.playChord(pitches, dur),
+      playBass: (pitch, dur) => synthRef.current?.playBass(pitch, dur),
+      playNote: (pitch, vel, dur) => synthRef.current?.playNote(pitch, vel, dur),
+      triggerShockwave: (x, y, i) => {
+        const cx = canvas ? x * canvas.width : 400;
+        const cy = canvas ? y * canvas.height : 300;
+        visualRef.current?.triggerShockwave(cx, cy, i);
+      },
+      setBloomStrength: () => {},
+      onPhaseChange: (phase) => setState((s) => ({ ...s, trailerPhase: phase })),
+    }, stateRef.current.bpm);
+  }, [canvasRef]);
+
+  const cycleSymmetry = useCallback(() => {
+    const next = visualRef.current?.cycleSymmetry() ?? 'off';
+    setState((s) => ({ ...s, symmetryMode: next }));
+  }, []);
+
+  const triggerCosmicZoom = useCallback(() => {
+    visualRef.current?.triggerCosmicZoom();
+  }, []);
+
+  const playLoopReverse = useCallback(() => {
+    loopRef.current?.playReverse();
+    setState((s) => ({ ...s, loopState: 'playing' }));
+  }, []);
+
   const setVisualMode = useCallback((mode: VisualModeName) => {
     visualRef.current?.setPreset(mode);
     setState((s) => ({ ...s, visualMode: mode }));
@@ -1057,6 +1256,13 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
         visualRef.current.updateCursor({ x, y, velocity: gestureState.velocity, pitch: prevPitchRef.current });
         return;
       }
+
+      // Velocity gate (same as mouse handler) — skip if barely moving
+      if (!isAccent && gestureState.velocity < CURSOR_MIN_VELOCITY) {
+        visualRef.current.updateCursor({ x, y, velocity: gestureState.velocity, pitch: prevPitchRef.current });
+        return;
+      }
+
       lastQuantizedTimeRef.current = now;
 
       // Beat/bar tracking
@@ -1078,7 +1284,8 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
 
       const scale = buildScale(stateRef.current.rootNote, stateRef.current.mode);
       const chord = harmonyRef.current.getCurrentChord();
-      const result = melodicCorrection({ pRaw: rawMapping.pRaw, pPrev: prevPitchRef.current, pPrevPrev: prevPrevPitchRef.current, scale, chord, m: melodicStability });
+      const chaosLvl = gestureRef.current?.getChaosLevel() ?? 0;
+      const result = melodicCorrection({ pRaw: rawMapping.pRaw, pPrev: prevPitchRef.current, pPrevPrev: prevPrevPitchRef.current, scale, chord, m: melodicStability, chaosLevel: chaosLvl });
       const pitch = result.selectedPitch;
       const velMul = isAccent ? 1.3 : 1;
       const velocity = Math.min(127, Math.round(rawMapping.midiVelocity * velMul));
@@ -1089,6 +1296,7 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
 
       synthRef.current.playNote(pitch, velocity, duration);
       synthRef.current.setFilterCutoff(rawMapping.filterCutoff);
+      gestureRef.current?.recordNoteOnset(performance.now());
 
       visualRef.current.updateCursor({ x, y, velocity: gestureState.velocity, pitch });
       visualRef.current.onNoteOn(x, y, pitch, velocity);
@@ -1149,6 +1357,8 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
       visualRef.current?.stop();
       synthRef.current?.dispose();
       recorderRef.current?.dispose();
+      freezeRef.current?.dispose();
+      trailerRef.current?.stop();
       cancelAnimationFrame(audioFrameIdRef.current);
     };
   }, []);
@@ -1198,6 +1408,12 @@ export function useGestureSymphony(canvasRef: React.RefObject<HTMLCanvasElement 
       setGpuEffects,
       setElectricFlower,
       setParticleWaves,
+      toggleEffect,
+      toggleFreeze,
+      triggerCinematicTrailer,
+      cycleSymmetry,
+      triggerCosmicZoom,
+      playLoopReverse,
     } satisfies GestureSymphonyActions,
     handleMouseMove,
     handleMouseDown,

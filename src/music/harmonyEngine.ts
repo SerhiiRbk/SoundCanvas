@@ -91,6 +91,15 @@ export const PROGRESSIONS: Record<string, ProgressionPattern> = {
 
 // ─── Harmony Engine Class ───
 
+export type HarmonyEvent = 'cadence' | 'modulation';
+
+export interface HarmonyEventData {
+  type: HarmonyEvent;
+  oldRoot?: number;
+  newRoot?: number;
+  degree?: number;
+}
+
 export class HarmonyEngine {
   private scale: Scale;
   private diatonicChords: Chord[];
@@ -98,6 +107,9 @@ export class HarmonyEngine {
   private progressionIndex: number = 0;
   private barCounter: number = 0;
   private barsPerChord: number;
+  private cycleCount = 0;
+  private modulationEnabled = false;
+  private eventListeners: ((ev: HarmonyEventData) => void)[] = [];
 
   constructor(scale: Scale, progressionName: string = 'I-V-vi-IV', barsPerChord: number = 2) {
     this.scale = scale;
@@ -105,6 +117,18 @@ export class HarmonyEngine {
     this.progression = PROGRESSIONS[progressionName]?.degrees ?? PROGRESSIONS['I-V-vi-IV'].degrees;
     this.barsPerChord = barsPerChord;
   }
+
+  /** Register listener for cadence/modulation events */
+  onEvent(cb: (ev: HarmonyEventData) => void): void {
+    this.eventListeners.push(cb);
+  }
+
+  private emit(ev: HarmonyEventData): void {
+    for (const cb of this.eventListeners) cb(ev);
+  }
+
+  /** Enable key modulation after N progression cycles */
+  setModulationEnabled(on: boolean): void { this.modulationEnabled = on; }
 
   /** Get the current chord. */
   getCurrentChord(): Chord {
@@ -124,11 +148,49 @@ export class HarmonyEngine {
     this.barCounter++;
     if (this.barCounter >= this.barsPerChord) {
       this.barCounter = 0;
+      const prevIdx = this.progressionIndex;
       this.progressionIndex = (this.progressionIndex + 1) % this.progression.length;
+
+      // Detect cadence: returning to I chord (degree 0)
+      const newDegree = this.progression[this.progressionIndex];
+      if (newDegree === 0 && prevIdx !== 0) {
+        this.emit({ type: 'cadence', degree: 0 });
+        this.cycleCount++;
+
+        // Key modulation after every 3 progression cycles
+        if (this.modulationEnabled && this.cycleCount > 0 && this.cycleCount % 3 === 0) {
+          const oldRoot = this.scale.root;
+          const shift = Math.random() > 0.5 ? 5 : 7; // up a 4th or 5th
+          const newRoot = ((oldRoot + shift) % 12) as PitchClass;
+          this.emit({ type: 'modulation', oldRoot, newRoot });
+          // Actually shift the scale
+          const newPCs = new Set<PitchClass>(
+            Array.from(this.scale.pitchClasses).map((pc) => ((pc + shift) % 12) as PitchClass)
+          );
+          this.scale = { ...this.scale, root: newRoot, pitchClasses: newPCs };
+          this.diatonicChords = buildDiatonicChords(this.scale);
+        }
+      }
+
       return true;
     }
     return false;
   }
+
+  /** Get current chord degree (0-indexed) */
+  getCurrentDegree(): number {
+    return this.progression[this.progressionIndex % this.progression.length];
+  }
+
+  /** Get chord quality for the current chord */
+  getCurrentChordQuality(): ChordQuality {
+    const degree = this.getCurrentDegree();
+    const isMinor = this.scale.name.includes('minor') || this.scale.name.includes('dorian');
+    const qualities = isMinor ? MINOR_QUALITIES : MAJOR_QUALITIES;
+    return qualities[degree % qualities.length];
+  }
+
+  getScale(): Scale { return this.scale; }
 
   /** Reset to beginning. */
   reset(): void {

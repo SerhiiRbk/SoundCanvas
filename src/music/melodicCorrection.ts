@@ -20,6 +20,8 @@ export interface MelodicCorrectionInput {
   scale: Scale;
   chord: Chord;
   m: number;
+  /** Harmonic gravity chaos level (0..1) */
+  chaosLevel?: number;
 }
 
 export interface MelodicCorrectionResult {
@@ -71,14 +73,14 @@ function sampleFromDistribution(probs: Map<number, number>): number {
 export function melodicCorrection(
   input: MelodicCorrectionInput
 ): MelodicCorrectionResult {
-  const { pRaw, pPrev, pPrevPrev, scale, chord, m } = input;
+  const { pRaw, pPrev, pPrevPrev, scale, chord, m, chaosLevel } = input;
   const candidates = getScalePitches(scale);
 
   if (candidates.length === 0) {
     return { selectedPitch: pRaw, cost: 0, probabilities: new Map() };
   }
 
-  const ctx: CostContext = { pRaw, pPrev, pPrevPrev, scale, chord, m };
+  const ctx: CostContext = { pRaw, pPrev, pPrevPrev, scale, chord, m, chaosLevel };
   const probabilities = softmaxSelect(candidates, ctx);
   const selectedPitch = sampleFromDistribution(probabilities);
   const cost = costJ(selectedPitch, ctx);
@@ -93,14 +95,14 @@ export function melodicCorrection(
 export function melodicCorrectionDeterministic(
   input: MelodicCorrectionInput
 ): MelodicCorrectionResult {
-  const { pRaw, pPrev, pPrevPrev, scale, chord, m } = input;
+  const { pRaw, pPrev, pPrevPrev, scale, chord, m, chaosLevel } = input;
   const candidates = getScalePitches(scale);
 
   if (candidates.length === 0) {
     return { selectedPitch: pRaw, cost: 0, probabilities: new Map() };
   }
 
-  const ctx: CostContext = { pRaw, pPrev, pPrevPrev, scale, chord, m };
+  const ctx: CostContext = { pRaw, pPrev, pPrevPrev, scale, chord, m, chaosLevel };
 
   let bestPitch = candidates[0];
   let bestCost = costJ(candidates[0], ctx);

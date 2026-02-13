@@ -4,7 +4,7 @@
  */
 
 // ─── Time & BPM ───
-export const DEFAULT_BPM = 110;
+export const DEFAULT_BPM = 96;
 export const MIN_BPM = 100;
 export const MAX_BPM = 120;
 export const QUANTIZE_DIVISION = 16; // 1/16 note
@@ -14,7 +14,7 @@ export const MIDI_MIN = 48; // C3
 export const MIDI_MAX = 84; // C6
 
 // ─── Melodic Stability ───
-export const DEFAULT_MELODIC_STABILITY = 0.5;
+export const DEFAULT_MELODIC_STABILITY = 0.7;
 
 // ─── Cost Function Weights (functions of m) ───
 export const WEIGHT_RAW = (m: number) => 1 - m;
@@ -68,6 +68,10 @@ export const DEFAULT_LIGHTNESS = 60;
 // ─── Audio ───
 export const FFT_SIZE = 256;
 export const SYNTH_MAX_POLYPHONY = 8;
+
+// ─── Gesture Gating ───
+/** Minimum cursor speed (px/s) required to trigger notes. Below this the cursor is "idle". */
+export const CURSOR_MIN_VELOCITY = 30;
 
 // ─── Visual Mode Presets ───
 export interface VisualPreset {

@@ -102,6 +102,15 @@ const App: React.FC = () => {
       if (e.key === 'w' || e.key === 'W') {
         actions.setParticleWaves(!wavesRef.current);
       }
+      if (e.key === 'z' || e.key === 'Z') {
+        actions.toggleFreeze();
+      }
+      if (e.key === 'y' || e.key === 'Y') {
+        actions.cycleSymmetry();
+      }
+      if (e.key === 'r' && e.shiftKey) {
+        actions.playLoopReverse();
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
@@ -190,6 +199,12 @@ const App: React.FC = () => {
           <kbd style={styles.kbd}>F</kbd> flower
           {' '}
           <kbd style={styles.kbd}>W</kbd> waves
+          {' '}
+          <kbd style={styles.kbd}>Z</kbd> freeze
+          {' '}
+          <kbd style={styles.kbd}>Y</kbd> symmetry
+          {' '}
+          <kbd style={styles.kbd}>Shift+R</kbd> reverse
         </div>
       )}
     </div>

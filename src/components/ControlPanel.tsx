@@ -133,6 +133,76 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         )}
       </Section>
 
+      {/* ─── Advanced Effects ─── */}
+      <Section title="Effects">
+        <div style={styles.effectGrid}>
+          {[
+            { key: 'lightWarp', label: 'Light Warp' },
+            { key: 'constellations', label: 'Stars' },
+            { key: 'chordGeometry', label: 'Geometry' },
+            { key: 'shockwave', label: 'Shockwave' },
+            { key: 'lightEcho', label: 'Echo Trail' },
+            { key: 'depthParallax', label: 'Parallax' },
+            { key: 'cadenceLock', label: 'Cadence' },
+            { key: 'modulationPortal', label: 'Portal' },
+            { key: 'harmonyOrbit', label: 'Orbit' },
+            { key: 'pulseLock', label: 'Pulse' },
+          ].map(({ key, label }) => (
+            <button
+              key={key}
+              style={{
+                ...styles.effectBtn,
+                ...(state.effectToggles[key] ? styles.effectBtnActive : {}),
+              }}
+              onClick={() => actions.toggleEffect(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div style={{ ...styles.row, marginTop: 6, gap: 4 }}>
+          <button
+            style={{
+              ...styles.modeButton,
+              ...(state.freezeMode ? styles.meditationBtnActive : {}),
+              flex: 1,
+            }}
+            onClick={actions.toggleFreeze}
+          >
+            {state.freezeMode ? 'Unfreeze (Z)' : 'Freeze (Z)'}
+          </button>
+          <button
+            style={{ ...styles.modeButton, flex: 1 }}
+            onClick={actions.cycleSymmetry}
+          >
+            Sym: {state.symmetryMode} (Y)
+          </button>
+        </div>
+        <div style={{ ...styles.row, marginTop: 4, gap: 4 }}>
+          <button
+            style={{
+              ...styles.modeButton,
+              ...(state.trailerPhase !== 'idle' ? styles.meditationBtnActive : {}),
+              flex: 1,
+            }}
+            onClick={actions.triggerCinematicTrailer}
+          >
+            {state.trailerPhase !== 'idle' ? `Epic: ${state.trailerPhase}` : 'Make it Epic'}
+          </button>
+          <button
+            style={{ ...styles.modeButton, flex: 1 }}
+            onClick={actions.triggerCosmicZoom}
+          >
+            Cosmic Zoom
+          </button>
+        </div>
+        {state.emotion !== 'calm' && (
+          <div style={styles.emotionBadge}>
+            Emotion: {state.emotion}
+          </div>
+        )}
+      </Section>
+
       {/* ─── Performance Mode ─── */}
       <Section title="Mode">
         <button
@@ -604,6 +674,33 @@ const styles: Record<string, React.CSSProperties> = {
     borderColor: 'rgba(59, 130, 246, 0.5)',
     color: '#93c5fd',
   },
+  effectGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(5, 1fr)',
+    gap: 3,
+  } as React.CSSProperties,
+  effectBtn: {
+    padding: '4px 2px',
+    fontSize: 9,
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 4,
+    background: 'rgba(255,255,255,0.04)',
+    color: 'rgba(255,255,255,0.5)',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  } as React.CSSProperties,
+  effectBtnActive: {
+    background: 'rgba(139, 92, 246, 0.3)',
+    borderColor: 'rgba(139, 92, 246, 0.5)',
+    color: '#c4b5fd',
+  } as React.CSSProperties,
+  emotionBadge: {
+    marginTop: 6,
+    fontSize: 10,
+    textAlign: 'center' as const,
+    color: 'rgba(196, 181, 253, 0.6)',
+    fontStyle: 'italic' as const,
+  } as React.CSSProperties,
   meditationHint: {
     fontSize: 10,
     color: 'rgba(196, 181, 253, 0.5)',

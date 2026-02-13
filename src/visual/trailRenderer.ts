@@ -47,6 +47,53 @@ export class TrailRenderer {
   private globalLow = 0;
   private globalHigh = 0;
 
+  /* ── Light Echo: re-illuminate positions when same pitch repeats ── */
+  private noteMemory: Map<number, { x: number; y: number; time: number }[]> = new Map();
+  private echoFlashes: { x: number; y: number; startTime: number; hue: number }[] = [];
+  private echoEnabled = false;
+
+  setEchoEnabled(on: boolean): void { this.echoEnabled = on; }
+
+  /** Record a note position for echo memory */
+  recordNotePosition(pitch: number, x: number, y: number): void {
+    const pc = pitch % 12;
+    if (!this.noteMemory.has(pc)) this.noteMemory.set(pc, []);
+    const mem = this.noteMemory.get(pc)!;
+    mem.push({ x, y, time: performance.now() / 1000 });
+    if (mem.length > 50) mem.shift();
+
+    // When same pitch class repeats, flash old positions
+    if (this.echoEnabled && mem.length > 1) {
+      const hue = pc * 30;
+      for (let i = 0; i < mem.length - 1; i++) {
+        this.echoFlashes.push({ x: mem[i].x, y: mem[i].y, startTime: performance.now() / 1000, hue });
+      }
+      if (this.echoFlashes.length > 100) this.echoFlashes.splice(0, this.echoFlashes.length - 100);
+    }
+  }
+
+  /** Render echo flashes (call after main trail render) */
+  renderEchoFlashes(ctx: CanvasRenderingContext2D): void {
+    if (!this.echoEnabled || this.echoFlashes.length === 0) return;
+    const now = performance.now() / 1000;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    this.echoFlashes = this.echoFlashes.filter((f) => {
+      const age = now - f.startTime;
+      if (age > 1.5) return false;
+      const alpha = Math.exp(-age / 0.5) * 0.4;
+      if (alpha < 0.01) return false;
+      const r = 4 + age * 8;
+      const grad = ctx.createRadialGradient(f.x, f.y, 0, f.x, f.y, r);
+      grad.addColorStop(0, `hsla(${f.hue}, 70%, 80%, ${alpha})`);
+      grad.addColorStop(1, `hsla(${f.hue}, 70%, 80%, 0)`);
+      ctx.fillStyle = grad;
+      ctx.fillRect(f.x - r, f.y - r, r * 2, r * 2);
+      return true;
+    });
+    ctx.restore();
+  }
+
   addPoint(x: number, y: number, velocity: number, hue: number, rms: number = 0): void {
     const len = this.points.length;
     if (len > 0) {
