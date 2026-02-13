@@ -36,6 +36,17 @@ import { CanvasVisualEngine } from './canvas/CanvasVisualEngine';
 
 import { MeditationVisuals } from './meditationVisuals';
 import { NoteParticles } from './noteParticles';
+import { Constellations } from './constellations';
+import { ChordGeometry } from './chordGeometry';
+import { Shockwave } from './shockwave';
+import { DepthParallax } from './depthParallax';
+import { CadenceLock } from './cadenceLock';
+import { ModulationPortal } from './modulationPortal';
+import { HarmonyOrbit } from './harmonyOrbit';
+import { PulseLock } from './pulseLock';
+import { LightWarp } from './lightWarp';
+import { SymmetryMode } from './symmetryMode';
+import { CosmicZoom } from './cosmicZoom';
 import { pitchToHue, hslToString } from './colorMapping';
 
 import {
@@ -62,8 +73,23 @@ export class VisualEngine {
   private meditation: MeditationVisuals;
   private noteParticles: NoteParticles;
 
+  /* ── 2D overlay effects (work in both WebGL and Canvas modes) ── */
+  private constellations!: import('./constellations').Constellations;
+  private chordGeometry!: import('./chordGeometry').ChordGeometry;
+  private shockwave!: import('./shockwave').Shockwave;
+  private depthParallax!: import('./depthParallax').DepthParallax;
+  private cadenceLock!: import('./cadenceLock').CadenceLock;
+  private modulationPortal!: import('./modulationPortal').ModulationPortal;
+  private harmonyOrbit!: import('./harmonyOrbit').HarmonyOrbit;
+  private pulseLock!: import('./pulseLock').PulseLock;
+  private lightWarp!: import('./lightWarp').LightWarp;
+  private symmetry!: import('./symmetryMode').SymmetryMode;
+  private cosmicZoom!: import('./cosmicZoom').CosmicZoom;
+
   /* ── State (legacy compat) ── */
   private cursor: CursorState = { x: -100, y: -100, velocity: 0, pitch: 60 };
+  private prevCursorX = -100;
+  private prevCursorY = -100;
   private audio: AudioFrameData = { rms: 0, lowEnergy: 0, highEnergy: 0 };
   private melodicStability = 0.5;
   private cursorActive = false;
@@ -108,6 +134,19 @@ export class VisualEngine {
     this.meditation = new MeditationVisuals();
     this.noteParticles = new NoteParticles();
 
+    // 2D overlay effects (work in both WebGL and Canvas modes)
+    this.constellations = new Constellations();
+    this.chordGeometry = new ChordGeometry();
+    this.shockwave = new Shockwave();
+    this.depthParallax = new DepthParallax();
+    this.cadenceLock = new CadenceLock();
+    this.modulationPortal = new ModulationPortal();
+    this.harmonyOrbit = new HarmonyOrbit();
+    this.pulseLock = new PulseLock();
+    this.lightWarp = new LightWarp();
+    this.symmetry = new SymmetryMode();
+    this.cosmicZoom = new CosmicZoom();
+
     // Create initial backend
     this.initBackend();
   }
@@ -143,6 +182,14 @@ export class VisualEngine {
       time: (performance.now() - this.startTime) / 1000,
     };
     this.backend?.onNote(ev);
+
+    // Feed facade-level overlay effects
+    this.constellations.addStar(x, y, pitch, 0);
+
+    // Shockwave on bass notes
+    if (pitch < 50 && velocity > 64) {
+      this.shockwave.trigger(x, y, velocity / 127);
+    }
   }
 
   setMelodicStability(m: number): void {
@@ -212,15 +259,48 @@ export class VisualEngine {
     const key = `${name}Enabled` as keyof VisualConfig;
     (this.config as Record<string, unknown>)[key] = on;
     this.backend?.setConfig({ [key]: on });
+
+    // Also update facade-level overlay effects (for WebGL mode)
+    this.syncOverlayEffect(name, on);
   }
 
   isEffectEnabled(name: string): boolean {
     return !!(this.config as Record<string, unknown>)[`${name}Enabled`];
   }
 
+  /** Sync a single overlay effect toggle */
+  private syncOverlayEffect(name: string, on: boolean): void {
+    switch (name) {
+      case 'constellations': this.constellations.setEnabled(on); break;
+      case 'chordGeometry': this.chordGeometry.setEnabled(on); break;
+      case 'shockwave': this.shockwave.setEnabled(on); break;
+      case 'depthParallax': this.depthParallax.setEnabled(on); break;
+      case 'cadenceLock': this.cadenceLock.setEnabled(on); break;
+      case 'modulationPortal': this.modulationPortal.setEnabled(on); break;
+      case 'harmonyOrbit': this.harmonyOrbit.setEnabled(on); break;
+      case 'pulseLock': this.pulseLock.setEnabled(on); break;
+      case 'lightWarp': this.lightWarp.setEnabled(on); break;
+    }
+  }
+
+  /** Sync all overlay effects from config */
+  private syncAllOverlayEffects(): void {
+    this.constellations.setEnabled(this.config.constellationsEnabled);
+    this.chordGeometry.setEnabled(this.config.chordGeometryEnabled);
+    this.shockwave.setEnabled(this.config.shockwaveEnabled);
+    this.depthParallax.setEnabled(this.config.depthParallaxEnabled);
+    this.cadenceLock.setEnabled(this.config.cadenceLockEnabled);
+    this.modulationPortal.setEnabled(this.config.modulationPortalEnabled);
+    this.harmonyOrbit.setEnabled(this.config.harmonyOrbitEnabled);
+    this.pulseLock.setEnabled(this.config.pulseLockEnabled);
+    this.lightWarp.setEnabled(this.config.lightWarpEnabled);
+    this.symmetry.setMode(this.config.symmetryMode);
+  }
+
   setSymmetryMode(mode: 'off' | 'horizontal' | 'radial4' | 'radial8'): void {
     this.config.symmetryMode = mode;
     this.backend?.setConfig({ symmetryMode: mode });
+    this.symmetry.setMode(mode);
   }
 
   cycleSymmetry(): string {
@@ -233,40 +313,54 @@ export class VisualEngine {
 
   /** Trigger visual effects for a chord change */
   triggerChordVisual(quality: string, rootPitch: number, degree: number): void {
+    this.chordGeometry.triggerChord(
+      quality as import('../music/harmonyEngine').ChordQuality,
+      rootPitch,
+      this.canvas.width / 2,
+      this.canvas.height / 2,
+    );
+    this.harmonyOrbit.setChord(degree, rootPitch);
+
+    // Also forward to Canvas backend if active
     const canvas = this.backend as CanvasVisualEngine;
-    if ('triggerChord' in canvas) {
+    if (!this.usingWebGL && 'triggerChord' in canvas) {
       canvas.triggerChord(quality as import('../music/harmonyEngine').ChordQuality, rootPitch, degree);
     }
   }
 
   /** Trigger cadence lock visual */
   triggerCadenceVisual(): void {
-    const canvas = this.backend as CanvasVisualEngine;
-    if ('triggerCadence' in canvas) canvas.triggerCadence();
+    this.cadenceLock.trigger();
   }
 
   /** Trigger modulation portal visual */
   triggerModulationVisual(oldRoot: number, newRoot: number): void {
-    const canvas = this.backend as CanvasVisualEngine;
-    if ('triggerModulation' in canvas) canvas.triggerModulation(oldRoot, newRoot);
+    this.modulationPortal.triggerModulation(oldRoot, newRoot);
   }
 
   /** Trigger a shockwave at position */
   triggerShockwave(x: number, y: number, intensity: number): void {
-    const canvas = this.backend as CanvasVisualEngine;
-    if ('triggerShockwave' in canvas) canvas.triggerShockwave(x, y, intensity);
+    this.shockwave.trigger(x, y, intensity);
   }
 
   /** Start cosmic zoom animation */
   triggerCosmicZoom(onComplete?: () => void): void {
-    const canvas = this.backend as CanvasVisualEngine;
-    if ('triggerCosmicZoom' in canvas) canvas.triggerCosmicZoom(onComplete);
+    this.cosmicZoom.start(onComplete);
   }
 
   /** Update pulse lock rhythm data */
   setPulseLockRhythm(strength: number, period: number): void {
+    this.pulseLock.setRhythm(strength, period);
+  }
+
+  /** Toggle starfield warp drive (space bar) */
+  setStarfieldWarp(on: boolean): void {
+    this.constellations.setWarpDrive(on);
+    // Forward to Canvas backend if active
     const canvas = this.backend as CanvasVisualEngine;
-    if ('getPulseLock' in canvas) canvas.getPulseLock().setRhythm(strength, period);
+    if (!this.usingWebGL && 'setStarfieldWarp' in canvas) {
+      canvas.setStarfieldWarp(on);
+    }
   }
 
   setMeditationMode(on: boolean): void {
@@ -357,8 +451,10 @@ export class VisualEngine {
     this.sHigh += (this.audio.highEnergy - this.sHigh) * k;
 
     // Build frame input
-    const prevX = this.cursor.x;
-    const prevY = this.cursor.y;
+    const vx = (this.cursor.x - this.prevCursorX) / Math.max(dt, 0.001);
+    const vy = (this.cursor.y - this.prevCursorY) / Math.max(dt, 0.001);
+    this.prevCursorX = this.cursor.x;
+    this.prevCursorY = this.cursor.y;
     const frame: VisualFrameInput = {
       time: (now - this.startTime) / 1000,
       dt,
@@ -367,8 +463,8 @@ export class VisualEngine {
       mouse: {
         x: this.cursor.x,
         y: this.cursor.y,
-        vx: this.cursor.velocity * Math.cos(0), // approximate
-        vy: this.cursor.velocity * Math.sin(0),
+        vx,
+        vy,
         speed: this.cursor.velocity,
       },
       audio: {
@@ -391,6 +487,9 @@ export class VisualEngine {
       this.cursor.pitch,
       this.sRms,
     );
+
+    // Update facade-level overlay effects
+    this.shockwave.update(dt);
 
     // Update backend
     this.backend?.update(frame);
@@ -438,6 +537,67 @@ export class VisualEngine {
     // ── 2D overlays (always on main canvas) ──
     const blurCx = this.cursorActive ? this.cursor.x : w / 2;
     const blurCy = this.cursorActive ? this.cursor.y : h / 2;
+    const time = frame.time;
+
+    // ── Overlay effects (rendered in both WebGL and Canvas modes) ──
+    // When Canvas backend is active, these are also rendered inside the backend,
+    // but the facade-level instances are the authoritative ones for WebGL mode.
+    if (this.usingWebGL) {
+      // Screen shake from shockwave
+      const shake = this.shockwave.getShakeOffset();
+      if (shake.x !== 0 || shake.y !== 0) {
+        ctx.save();
+        ctx.translate(shake.x, shake.y);
+      }
+
+      // Cosmic zoom scale
+      const zoomScale = this.cosmicZoom.getScale();
+      if (zoomScale < 0.99) {
+        ctx.save();
+        ctx.translate(w / 2, h / 2);
+        ctx.scale(zoomScale, zoomScale);
+        ctx.translate(-w / 2, -h / 2);
+      }
+
+      // Pulse lock background
+      this.pulseLock.render(ctx, w, h, time);
+
+      // Depth parallax (behind everything)
+      this.depthParallax.render(ctx, w, h, blurCx, blurCy, this.sRms);
+
+      // Shockwave
+      this.shockwave.render(ctx);
+
+      // Constellations
+      this.constellations.render(ctx, w, h, this.sRms, this.sLow, this.sHigh, time);
+
+      // Chord geometry overlay
+      this.chordGeometry.render(ctx, w, h, this.sRms);
+
+      // Harmony orbit
+      this.harmonyOrbit.render(ctx, w, h);
+
+      // Cadence lock
+      this.cadenceLock.render(ctx, w, h);
+
+      // Modulation portal
+      this.modulationPortal.render(ctx, w, h);
+
+      // Cosmic zoom overlay
+      this.cosmicZoom.render(ctx, w, h);
+
+      // Light warp (post-effect)
+      this.lightWarp.apply(ctx, w, h, blurCx, blurCy, this.sLow);
+
+      // Symmetry (very last)
+      this.symmetry.apply(ctx, w, h);
+
+      // Restore cosmic zoom
+      if (zoomScale < 0.99) ctx.restore();
+
+      // Restore shake
+      if (shake.x !== 0 || shake.y !== 0) ctx.restore();
+    }
 
     // Meditation visuals
     this.meditation.render(

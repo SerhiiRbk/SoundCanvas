@@ -163,6 +163,7 @@ export class CanvasVisualEngine implements IVisualBackend {
 
   getSymmetry(): SymmetryMode { return this.symmetry; }
   getCosmicZoom(): CosmicZoom { return this.cosmicZoom; }
+  setStarfieldWarp(on: boolean): void { this.constellations.setWarpDrive(on); }
   getPulseLock(): PulseLock { return this.pulseLock; }
 
   render(): void {
@@ -230,7 +231,7 @@ export class CanvasVisualEngine implements IVisualBackend {
     this.shockwave.render(ctx);
 
     // ── Constellations ──
-    this.constellations.render(ctx, w, h);
+    this.constellations.render(ctx, w, h, this.sRms, this.sLow, this.sHigh, time);
 
     // ── Chord geometry overlay ──
     this.chordGeometry.render(ctx, w, h, this.sRms);

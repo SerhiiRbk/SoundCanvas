@@ -46,28 +46,28 @@ const SPIRO_BREATH_SPEED = 0.035;
 const SPIRO_BREATH_DEPTH = 0.04;
 
 /* ══════════════════════════════════════════════
-   Constants — Eternity (lemniscate) path
+   Constants — Eternity (chaotic flight) path
    ══════════════════════════════════════════════ */
 
-/** Angular speed around the lemniscate (radians/sec) — slow & serene */
-const LEMNI_SPEED = 0.25;
-
-/** Horizontal amplitude as fraction of half-width */
-const LEMNI_AMP_X = 0.38;
-/** Vertical amplitude as fraction of half-height */
-const LEMNI_AMP_Y = 0.20;
-
-/** Slow rotation of the whole figure (radians/sec) */
-const LEMNI_ROTATE_SPEED = 0.012;
-
-/** Breath modulation on the lemniscate size */
-const LEMNI_BREATH_SPEED = 0.035;
-const LEMNI_BREATH_DEPTH = 0.10;
-
-/** Micro-perturbation: subtle noise layered on the clean curve */
-const LEMNI_PERTURB_AMP = 0.015;  // fraction of half-dim
-const LEMNI_PERTURB_W1 = 0.37;
-const LEMNI_PERTURB_W2 = 0.53;
+/** Base cruising speed (px/s) */
+const CHAOS_BASE_SPEED = 280;
+/** Maximum speed (px/s) */
+const CHAOS_MAX_SPEED = 650;
+/** Drag coefficient — keeps things smooth */
+const CHAOS_DRAG = 0.97;
+/** How often random impulses fire (per second on average) */
+const CHAOS_IMPULSE_RATE = 2.5;
+/** Impulse strength range (px/s²) */
+const CHAOS_IMPULSE_MIN = 300;
+const CHAOS_IMPULSE_MAX = 900;
+/** Smooth steering force toward random waypoints */
+const CHAOS_STEER_FORCE = 180;
+/** Edge repulsion margin (fraction of screen) */
+const CHAOS_EDGE_MARGIN = 0.08;
+/** Edge repulsion strength */
+const CHAOS_EDGE_FORCE = 600;
+/** Perlin-like wander: layered sine frequencies */
+const CHAOS_WANDER_AMP = 120;
 
 /* ══════════════════════════════════════════════ */
 
@@ -81,8 +81,22 @@ export class MeditationEngine {
 
   private _pathMode: PathMode = 'meditation';
 
+  /* ── Chaotic eternity state ── */
+  private chaosVx = 0;
+  private chaosVy = 0;
+  private chaosPosX = 0;
+  private chaosPosY = 0;
+  private chaosInitialized = false;
+  private chaosWaypointX = 0;
+  private chaosWaypointY = 0;
+  private chaosWaypointTimer = 0;
+  private chaosImpulseTimer = 0;
+  /** Layered wander phases (for organic feel) */
+  private chaosPhases: number[] = [];
+
   constructor() {
     this.phaseOffset = Math.random() * Math.PI * 2;
+    this.chaosPhases = Array.from({ length: 6 }, () => Math.random() * Math.PI * 2);
   }
 
   /** Switch the path algorithm */
@@ -98,6 +112,8 @@ export class MeditationEngine {
   reset(): void {
     this.time = 0;
     this.phaseOffset = Math.random() * Math.PI * 2;
+    this.chaosInitialized = false;
+    this.chaosPhases = Array.from({ length: 6 }, () => Math.random() * Math.PI * 2);
   }
 
   /**
@@ -115,7 +131,7 @@ export class MeditationEngine {
     const dx = pos.x - this.prevX;
     const dy = pos.y - this.prevY;
     const rawVel = Math.sqrt(dx * dx + dy * dy) / Math.max(dt, 0.001);
-    const velocity = Math.min(rawVel, 200);
+    const velocity = Math.min(rawVel, this._pathMode === 'eternity' ? 800 : 200);
 
     this.prevX = pos.x;
     this.prevY = pos.y;
@@ -155,49 +171,112 @@ export class MeditationEngine {
     return { x, y };
   }
 
-  /* ── Eternity path (lemniscate of Bernoulli / ∞) ── */
+  /* ── Eternity path (chaotic energetic flight) ── */
 
-  private tickEternity(_dt: number, canvasW: number, canvasH: number): { x: number; y: number } {
+  private tickEternity(dt: number, canvasW: number, canvasH: number): { x: number; y: number } {
     const t = this.time;
 
-    const halfW = canvasW * 0.5;
-    const halfH = canvasH * 0.5;
+    // Initialize position at center on first tick
+    if (!this.chaosInitialized) {
+      this.chaosPosX = canvasW * 0.5;
+      this.chaosPosY = canvasH * 0.5;
+      // Start with a random velocity
+      const angle = Math.random() * Math.PI * 2;
+      this.chaosVx = Math.cos(angle) * CHAOS_BASE_SPEED;
+      this.chaosVy = Math.sin(angle) * CHAOS_BASE_SPEED;
+      this.chaosWaypointX = Math.random() * canvasW;
+      this.chaosWaypointY = Math.random() * canvasH;
+      this.chaosWaypointTimer = 0;
+      this.chaosImpulseTimer = 0;
+      this.chaosInitialized = true;
+    }
 
-    // Parametric angle along the lemniscate
-    const theta = t * LEMNI_SPEED;
+    // ── 1. Layered sinusoidal wander (organic, non-repeating) ──
+    const ph = this.chaosPhases;
+    const wanderX = CHAOS_WANDER_AMP * (
+      Math.sin(t * 0.7 + ph[0]) * 0.5 +
+      Math.sin(t * 1.3 + ph[1]) * 0.3 +
+      Math.sin(t * 2.1 + ph[2]) * 0.2
+    );
+    const wanderY = CHAOS_WANDER_AMP * (
+      Math.sin(t * 0.9 + ph[3]) * 0.5 +
+      Math.sin(t * 1.7 + ph[4]) * 0.3 +
+      Math.sin(t * 2.5 + ph[5]) * 0.2
+    );
 
-    // Lemniscate of Bernoulli:
-    //   x = cos(θ) / (1 + sin²(θ))
-    //   y = sin(θ) · cos(θ) / (1 + sin²(θ))
-    const sinT = Math.sin(theta);
-    const cosT = Math.cos(theta);
-    const denom = 1 + sinT * sinT;
+    // ── 2. Waypoint steering (smooth pull toward random targets) ──
+    this.chaosWaypointTimer -= dt;
+    if (this.chaosWaypointTimer <= 0) {
+      // Pick a new waypoint anywhere on screen (with margin)
+      const margin = Math.min(canvasW, canvasH) * 0.1;
+      this.chaosWaypointX = margin + Math.random() * (canvasW - margin * 2);
+      this.chaosWaypointY = margin + Math.random() * (canvasH - margin * 2);
+      this.chaosWaypointTimer = 1.5 + Math.random() * 2.5;
+    }
 
-    const lx = cosT / denom;         // normalised −1..1
-    const ly = (sinT * cosT) / denom; // normalised −0.5..0.5
+    const toWpX = this.chaosWaypointX - this.chaosPosX;
+    const toWpY = this.chaosWaypointY - this.chaosPosY;
+    const wpDist = Math.sqrt(toWpX * toWpX + toWpY * toWpY) || 1;
+    const steerX = (toWpX / wpDist) * CHAOS_STEER_FORCE;
+    const steerY = (toWpY / wpDist) * CHAOS_STEER_FORCE;
 
-    // Breath modulation
-    const breath = 1 + Math.sin(t * LEMNI_BREATH_SPEED) * LEMNI_BREATH_DEPTH;
+    // ── 3. Random impulses (sudden bursts of acceleration) ──
+    this.chaosImpulseTimer -= dt;
+    let impulseX = 0, impulseY = 0;
+    if (this.chaosImpulseTimer <= 0) {
+      this.chaosImpulseTimer = 0.2 + Math.random() * (1.0 / CHAOS_IMPULSE_RATE);
+      const impAngle = Math.random() * Math.PI * 2;
+      const impStr = CHAOS_IMPULSE_MIN + Math.random() * (CHAOS_IMPULSE_MAX - CHAOS_IMPULSE_MIN);
+      impulseX = Math.cos(impAngle) * impStr;
+      impulseY = Math.sin(impAngle) * impStr;
+    }
 
-    // Amplitudes
-    const ax = halfW * LEMNI_AMP_X * breath;
-    const ay = halfH * LEMNI_AMP_Y * breath;
+    // ── 4. Edge repulsion (soft bounce off screen edges) ──
+    let edgeX = 0, edgeY = 0;
+    const marginX = canvasW * CHAOS_EDGE_MARGIN;
+    const marginY = canvasH * CHAOS_EDGE_MARGIN;
 
-    // Slow rotation of the entire figure
-    const rot = t * LEMNI_ROTATE_SPEED;
-    const cosR = Math.cos(rot);
-    const sinR = Math.sin(rot);
+    if (this.chaosPosX < marginX) {
+      edgeX = CHAOS_EDGE_FORCE * (1 - this.chaosPosX / marginX);
+    } else if (this.chaosPosX > canvasW - marginX) {
+      edgeX = -CHAOS_EDGE_FORCE * (1 - (canvasW - this.chaosPosX) / marginX);
+    }
+    if (this.chaosPosY < marginY) {
+      edgeY = CHAOS_EDGE_FORCE * (1 - this.chaosPosY / marginY);
+    } else if (this.chaosPosY > canvasH - marginY) {
+      edgeY = -CHAOS_EDGE_FORCE * (1 - (canvasH - this.chaosPosY) / marginY);
+    }
 
-    const rx = lx * ax * cosR - ly * ay * sinR;
-    const ry = lx * ax * sinR + ly * ay * cosR;
+    // ── 5. Integrate velocity ──
+    this.chaosVx += (steerX + impulseX + edgeX + wanderX * 0.5) * dt;
+    this.chaosVy += (steerY + impulseY + edgeY + wanderY * 0.5) * dt;
 
-    // Micro-perturbation (so the path feels alive)
-    const px = halfW * LEMNI_PERTURB_AMP * Math.sin(t * LEMNI_PERTURB_W1 + 1.3);
-    const py = halfH * LEMNI_PERTURB_AMP * Math.sin(t * LEMNI_PERTURB_W2 + 2.7);
+    // Drag
+    this.chaosVx *= Math.pow(CHAOS_DRAG, dt * 60);
+    this.chaosVy *= Math.pow(CHAOS_DRAG, dt * 60);
 
-    const x = halfW + rx + px;
-    const y = halfH + ry + py;
+    // Speed clamp
+    const speed = Math.sqrt(this.chaosVx * this.chaosVx + this.chaosVy * this.chaosVy);
+    if (speed > CHAOS_MAX_SPEED) {
+      const scale = CHAOS_MAX_SPEED / speed;
+      this.chaosVx *= scale;
+      this.chaosVy *= scale;
+    }
+    // Minimum speed — never let it stall
+    if (speed < CHAOS_BASE_SPEED * 0.5) {
+      const boost = (CHAOS_BASE_SPEED * 0.5) / Math.max(speed, 1);
+      this.chaosVx *= boost;
+      this.chaosVy *= boost;
+    }
 
-    return { x, y };
+    // ── 6. Integrate position ──
+    this.chaosPosX += this.chaosVx * dt;
+    this.chaosPosY += this.chaosVy * dt;
+
+    // Hard clamp (safety)
+    this.chaosPosX = Math.max(2, Math.min(canvasW - 2, this.chaosPosX));
+    this.chaosPosY = Math.max(2, Math.min(canvasH - 2, this.chaosPosY));
+
+    return { x: this.chaosPosX, y: this.chaosPosY };
   }
 }
