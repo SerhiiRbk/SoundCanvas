@@ -93,6 +93,8 @@ export interface TrailPoint {
   timestamp: number;
   velocity: number;
   hue: number;
+  /** Audio RMS at the moment this point was recorded (0–1). */
+  rms: number;
 }
 
 export interface AudioFrameData {

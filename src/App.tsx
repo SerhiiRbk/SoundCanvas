@@ -67,7 +67,18 @@ const App: React.FC = () => {
     handleStart();
   }, [handleStart]);
 
-  // Keyboard shortcuts: H = panel, P = performance mode
+  // Keyboard shortcuts: H = panel, P = performance mode, M = meditation, E = eternity, G = GPU
+  const meditationRef = useRef(state.meditationMode);
+  meditationRef.current = state.meditationMode;
+  const eternityRef = useRef(state.eternityMode);
+  eternityRef.current = state.eternityMode;
+  const gpuRef = useRef(state.gpuEffects);
+  gpuRef.current = state.gpuEffects;
+  const flowerRef = useRef(state.electricFlower);
+  flowerRef.current = state.electricFlower;
+  const wavesRef = useRef(state.particleWaves);
+  wavesRef.current = state.particleWaves;
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'h' || e.key === 'H') {
@@ -76,10 +87,34 @@ const App: React.FC = () => {
       if (e.key === 'p' || e.key === 'P') {
         setPerformanceMode((v) => !v);
       }
+      if (e.key === 'm' || e.key === 'M') {
+        actions.setMeditationMode(!meditationRef.current);
+      }
+      if (e.key === 'e' || e.key === 'E') {
+        actions.setEternityMode(!eternityRef.current);
+      }
+      if (e.key === 'g' || e.key === 'G') {
+        actions.setGpuEffects(!gpuRef.current);
+      }
+      if (e.key === 'f' || e.key === 'F') {
+        actions.setElectricFlower(!flowerRef.current);
+      }
+      if (e.key === 'w' || e.key === 'W') {
+        actions.setParticleWaves(!wavesRef.current);
+      }
+      if (e.key === 'z' || e.key === 'Z') {
+        actions.toggleFreeze();
+      }
+      if (e.key === 'y' || e.key === 'Y') {
+        actions.cycleSymmetry();
+      }
+      if (e.key === 'r' && e.shiftKey) {
+        actions.playLoopReverse();
+      }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, []);
+  }, [actions]);
 
   // In performance mode: hide panel
   const showPanel = panelVisible && !performanceMode;
@@ -153,7 +188,23 @@ const App: React.FC = () => {
         <div style={styles.keyHint}>
           <kbd style={styles.kbd}>H</kbd> controls
           {' '}
-          <kbd style={styles.kbd}>P</kbd> performance mode
+          <kbd style={styles.kbd}>P</kbd> performance
+          {' '}
+          <kbd style={styles.kbd}>M</kbd> meditation
+          {' '}
+          <kbd style={styles.kbd}>E</kbd> eternity
+          {' '}
+          <kbd style={styles.kbd}>G</kbd> gpu
+          {' '}
+          <kbd style={styles.kbd}>F</kbd> flower
+          {' '}
+          <kbd style={styles.kbd}>W</kbd> waves
+          {' '}
+          <kbd style={styles.kbd}>Z</kbd> freeze
+          {' '}
+          <kbd style={styles.kbd}>Y</kbd> symmetry
+          {' '}
+          <kbd style={styles.kbd}>Shift+R</kbd> reverse
         </div>
       )}
     </div>

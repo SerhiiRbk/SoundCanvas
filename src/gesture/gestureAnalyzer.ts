@@ -15,12 +15,44 @@ import type { GestureState, GestureFeatures, RawMapping } from '../composer/comp
 const ANGULAR_HISTORY_SIZE = 30;
 const ARPEGGIO_ANGULAR_THRESHOLD = 2.5; // radians/sec
 
+// ─── Curvature Detection ───
+const CURVATURE_HISTORY_SIZE = 20;
+const CURVATURE_SMOOTH = 0.15; // EMA factor
+
+// ─── Rhythm Detection ───
+const RHYTHM_IOI_SIZE = 16; // inter-onset intervals
+
+// ─── Energy Detection ───
+const ENERGY_WINDOW_SEC = 1.0;
+
+// ─── Chaos (Harmonic Gravity) ───
+const CHAOS_INTERVAL_SIZE = 8;
+
 export class GestureAnalyzer {
   private prevState: GestureState | null = null;
   private prevPrevState: GestureState | null = null;
   private angularHistory: number[] = [];
   private canvasWidth: number;
   private canvasHeight: number;
+
+  /* ── Curvature ── */
+  private posHistory: { x: number; y: number; t: number }[] = [];
+  private smoothedCurvature = 0;
+
+  /* ── Rhythm ── */
+  private onsetTimes: number[] = [];
+  private rhythmStrength = 0;
+  private dominantPeriod = 0;
+
+  /* ── Energy ── */
+  private velocityHistory: { v: number; t: number }[] = [];
+  private energyLevel = 0;
+  private prevEnergyLevel = 0;
+  private burstFrames = 0;
+
+  /* ── Chaos (interval variance) ── */
+  private intervalHistory: number[] = [];
+  private chaosLevel = 0;
 
   constructor(canvasWidth: number, canvasHeight: number) {
     this.canvasWidth = canvasWidth;
@@ -81,7 +113,44 @@ export class GestureAnalyzer {
       this.angularHistory.shift();
     }
 
+    // ── Curvature tracking ──
+    this.posHistory.push({ x, y, t: timestamp });
+    if (this.posHistory.length > CURVATURE_HISTORY_SIZE) this.posHistory.shift();
+    this.updateCurvature();
+
+    // ── Energy tracking ──
+    this.velocityHistory.push({ v: velocity, t: timestamp });
+    const cutoff = timestamp - ENERGY_WINDOW_SEC * 1000;
+    while (this.velocityHistory.length > 0 && this.velocityHistory[0].t < cutoff) {
+      this.velocityHistory.shift();
+    }
+    this.prevEnergyLevel = this.energyLevel;
+    this.energyLevel = this.velocityHistory.length > 0
+      ? this.velocityHistory.reduce((s, e) => s + e.v, 0) / this.velocityHistory.length / 1500
+      : 0;
+    this.energyLevel = Math.min(1, this.energyLevel);
+
+    // Burst detection
+    if (this.energyLevel > this.prevEnergyLevel * 2 && this.energyLevel > 0.3) {
+      this.burstFrames++;
+    } else {
+      this.burstFrames = Math.max(0, this.burstFrames - 1);
+    }
+
     return state;
+  }
+
+  /* ── Curvature computation ── */
+  private updateCurvature(): void {
+    const h = this.posHistory;
+    if (h.length < 3) { this.smoothedCurvature = 0; return; }
+    const i = h.length - 1;
+    const p0 = h[i - 2], p1 = h[i - 1], p2 = h[i];
+    const dx = p2.x - p1.x, dy = p2.y - p1.y;
+    const ddx = (p2.x - 2 * p1.x + p0.x), ddy = (p2.y - 2 * p1.y + p0.y);
+    const denom = Math.pow(dx * dx + dy * dy, 1.5);
+    const k = denom > 0.001 ? Math.abs(dx * ddy - dy * ddx) / denom : 0;
+    this.smoothedCurvature += (k - this.smoothedCurvature) * CURVATURE_SMOOTH;
   }
 
   /**
@@ -96,9 +165,9 @@ export class GestureAnalyzer {
     const yNorm = 1 - Math.max(0, Math.min(1, state.y / this.canvasHeight));
     const octaveBias = (yNorm - 0.5) * 2; // [-1, 1]
 
-    // Velocity → MIDI velocity (clamped)
-    const velNorm = Math.min(state.velocity / 1500, 1);
-    const midiVelocity = Math.round(40 + velNorm * 87); // 40–127
+    // Velocity → MIDI velocity (soft curve for calmer sound)
+    const velNorm = Math.min(state.velocity / 2000, 1);
+    const midiVelocity = Math.round(30 + velNorm * 65); // 30–95 (gentler range)
 
     // Acceleration → filter cutoff (0–1)
     const filterCutoff = Math.min(Math.abs(state.acceleration) / 5000, 1);
@@ -133,6 +202,59 @@ export class GestureAnalyzer {
     return { energy, smoothness, density };
   }
 
+  /* ────────────────────────────────────────────
+     Rhythm detection (call on each noteOn)
+     ──────────────────────────────────────────── */
+
+  /** Call this whenever a note is triggered to track rhythm. */
+  recordNoteOnset(timestamp: number): void {
+    this.onsetTimes.push(timestamp);
+    if (this.onsetTimes.length > RHYTHM_IOI_SIZE + 1) this.onsetTimes.shift();
+
+    // Track interval for chaos
+    if (this.prevState) {
+      const interval = Math.abs((this.prevState as GestureState).x - (this.prevPrevState?.x ?? this.prevState.x));
+      this.intervalHistory.push(interval);
+      if (this.intervalHistory.length > CHAOS_INTERVAL_SIZE) this.intervalHistory.shift();
+    }
+
+    this.updateRhythm();
+    this.updateChaos();
+  }
+
+  private updateRhythm(): void {
+    if (this.onsetTimes.length < 3) { this.rhythmStrength = 0; this.dominantPeriod = 0; return; }
+    const iois: number[] = [];
+    for (let i = 1; i < this.onsetTimes.length; i++) {
+      iois.push(this.onsetTimes[i] - this.onsetTimes[i - 1]);
+    }
+    // Simple autocorrelation-based periodicity detection
+    const mean = iois.reduce((a, b) => a + b, 0) / iois.length;
+    const variance = iois.reduce((s, v) => s + (v - mean) ** 2, 0) / iois.length;
+    const std = Math.sqrt(variance);
+    // Rhythm strength = inverse of coefficient of variation (low variation = strong rhythm)
+    this.rhythmStrength = mean > 0 ? Math.max(0, Math.min(1, 1 - std / mean)) : 0;
+    this.dominantPeriod = mean / 1000; // seconds
+  }
+
+  private updateChaos(): void {
+    if (this.intervalHistory.length < 3) { this.chaosLevel = 0; return; }
+    const mean = this.intervalHistory.reduce((a, b) => a + b, 0) / this.intervalHistory.length;
+    const variance = this.intervalHistory.reduce((s, v) => s + (v - mean) ** 2, 0) / this.intervalHistory.length;
+    this.chaosLevel = Math.min(1, Math.sqrt(variance) / 12);
+  }
+
+  /* ────────────────────────────────────────────
+     Getters for new analysis
+     ──────────────────────────────────────────── */
+
+  getCurvature(): number { return this.smoothedCurvature; }
+  getRhythmStrength(): number { return this.rhythmStrength; }
+  getDominantPeriod(): number { return this.dominantPeriod; }
+  getEnergy(): number { return this.energyLevel; }
+  isSuddenBurst(): boolean { return this.burstFrames >= 3; }
+  getChaosLevel(): number { return this.chaosLevel; }
+
   /**
    * Update canvas dimensions (on resize).
    */
@@ -148,5 +270,16 @@ export class GestureAnalyzer {
     this.prevState = null;
     this.prevPrevState = null;
     this.angularHistory = [];
+    this.posHistory = [];
+    this.smoothedCurvature = 0;
+    this.onsetTimes = [];
+    this.rhythmStrength = 0;
+    this.dominantPeriod = 0;
+    this.velocityHistory = [];
+    this.energyLevel = 0;
+    this.prevEnergyLevel = 0;
+    this.burstFrames = 0;
+    this.intervalHistory = [];
+    this.chaosLevel = 0;
   }
 }

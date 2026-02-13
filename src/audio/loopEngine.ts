@@ -136,6 +136,39 @@ export class LoopEngine {
   }
 
   /**
+   * Play the loop in reverse.
+   * Events are mirrored in time and played back.
+   */
+  playReverse(): void {
+    if (this.events.length === 0 || this.loopDuration === 0) return;
+
+    this.state = 'playing';
+    this.playbackStartTime = performance.now() / 1000;
+
+    // Create reversed events
+    const reversed = this.events.map((e) => ({
+      ...e,
+      time: this.loopDuration - e.time,
+    })).sort((a, b) => a.time - b.time);
+
+    // Schedule all reversed events
+    for (const event of reversed) {
+      const waitMs = Math.max(5, event.time * 1000);
+      window.setTimeout(() => {
+        if (this.state !== 'playing') return;
+        this.onNoteCallback?.(event);
+      }, waitMs);
+    }
+
+    // Loop back after duration
+    window.setTimeout(() => {
+      if (this.state === 'playing') {
+        this.playReverse();
+      }
+    }, this.loopDuration * 1000);
+  }
+
+  /**
    * Schedule the next note in the playback loop.
    */
   private scheduleNextNote(): void {

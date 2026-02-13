@@ -28,6 +28,8 @@ export interface CostContext {
   scale: Scale;
   chord: Chord;
   m: number; // melodic stability ∈ [0,1]
+  /** Harmonic gravity: chaos level 0..1; higher = stronger pull to tonic/chord */
+  chaosLevel?: number;
 }
 
 /**
@@ -94,14 +96,17 @@ export function dRepeat(p: number, pPrev: number, pPrevPrev: number): number {
  * Full cost function J(p) for a candidate pitch.
  */
 export function costJ(p: number, ctx: CostContext): number {
-  const { pRaw, pPrev, pPrevPrev, scale, chord, m } = ctx;
+  const { pRaw, pPrev, pPrevPrev, scale, chord, m, chaosLevel = 0 } = ctx;
+
+  // Harmonic gravity: when chaos is high, increase pull to tonic and chord tones
+  const gravityBoost = chaosLevel > 0.3 ? chaosLevel * 2.0 : 0;
 
   return (
     WEIGHT_RAW(m) * Math.abs(p - pRaw) +
     WEIGHT_STEP(m) * dStep(p, pPrev) +
     WEIGHT_LEAP(m) * dLeap(p, pPrev, m) +
-    WEIGHT_TONIC(m) * dTonic(p, scale) +
-    WEIGHT_CHORD(m) * dChord(p, chord, scale) +
+    (WEIGHT_TONIC(m) + gravityBoost) * dTonic(p, scale) +
+    (WEIGHT_CHORD(m) + gravityBoost) * dChord(p, chord, scale) +
     WEIGHT_REPEAT(m) * dRepeat(p, pPrev, pPrevPrev)
   );
 }

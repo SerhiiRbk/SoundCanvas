@@ -4,7 +4,7 @@
  */
 
 // ─── Time & BPM ───
-export const DEFAULT_BPM = 110;
+export const DEFAULT_BPM = 96;
 export const MIN_BPM = 100;
 export const MAX_BPM = 120;
 export const QUANTIZE_DIVISION = 16; // 1/16 note
@@ -14,7 +14,7 @@ export const MIDI_MIN = 48; // C3
 export const MIDI_MAX = 84; // C6
 
 // ─── Melodic Stability ───
-export const DEFAULT_MELODIC_STABILITY = 0.5;
+export const DEFAULT_MELODIC_STABILITY = 0.7;
 
 // ─── Cost Function Weights (functions of m) ───
 export const WEIGHT_RAW = (m: number) => 1 - m;
@@ -42,11 +42,11 @@ export const CHORD_CHANGE_BARS = 2;
 export const MELODIC_SCORE_THRESHOLD = 0.6;
 
 // ─── Visual ───
-export const MAX_TRAIL_POINTS = 150;
+export const MAX_TRAIL_POINTS = 280;
 export const TRAIL_DECAY_TAU_MIN = 0.3;
 export const TRAIL_DECAY_TAU_MAX = 0.6;
-export const TRAIL_BASE_WIDTH = 2;
-export const TRAIL_VELOCITY_WIDTH_K = 0.04;
+export const TRAIL_BASE_WIDTH = 2.5;
+export const TRAIL_VELOCITY_WIDTH_K = 0.05;
 
 export const MAX_PARTICLES = 500;
 export const PARTICLE_BASE_COUNT = 10;
@@ -68,6 +68,10 @@ export const DEFAULT_LIGHTNESS = 60;
 // ─── Audio ───
 export const FFT_SIZE = 256;
 export const SYNTH_MAX_POLYPHONY = 8;
+
+// ─── Gesture Gating ───
+/** Minimum cursor speed (px/s) required to trigger notes. Below this the cursor is "idle". */
+export const CURSOR_MIN_VELOCITY = 30;
 
 // ─── Visual Mode Presets ───
 export interface VisualPreset {

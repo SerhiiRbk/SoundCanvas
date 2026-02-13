@@ -43,6 +43,166 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
         <SceneSelector onSelect={actions.applyScene} compact />
       </Section>
 
+      {/* ─── Meditation Mode ─── */}
+      <Section title="Meditation">
+        <button
+          style={{
+            ...styles.modeButton,
+            ...(state.meditationMode ? styles.meditationBtnActive : {}),
+            width: '100%',
+          }}
+          onClick={() => actions.setMeditationMode(!state.meditationMode)}
+        >
+          {state.meditationMode ? 'Exit Meditation' : 'Meditation Mode (M)'}
+        </button>
+        {state.meditationMode && (
+          <div style={styles.meditationHint}>
+            Autonomous cursor, pentatonic scale, slow tempo
+          </div>
+        )}
+      </Section>
+
+      {/* ─── Eternity Mode ─── */}
+      <Section title="Eternity">
+        <button
+          style={{
+            ...styles.modeButton,
+            ...(state.eternityMode ? styles.eternityBtnActive : {}),
+            width: '100%',
+          }}
+          onClick={() => actions.setEternityMode(!state.eternityMode)}
+        >
+          {state.eternityMode ? 'Exit Eternity' : 'Eternity Mode (E)'}
+        </button>
+        {state.eternityMode && (
+          <div style={styles.meditationHint}>
+            Lemniscate path, dreamy tones, infinite flow
+          </div>
+        )}
+      </Section>
+
+      {/* ─── GPU Effects ─── */}
+      <Section title="GPU Effects">
+        <button
+          style={{
+            ...styles.modeButton,
+            ...(state.gpuEffects ? styles.gpuBtnActive : {}),
+            width: '100%',
+          }}
+          onClick={() => actions.setGpuEffects(!state.gpuEffects)}
+        >
+          {state.gpuEffects ? 'GPU Effects ON (G)' : 'GPU Effects OFF (G)'}
+        </button>
+      </Section>
+
+      {/* ─── Electric Flower ─── */}
+      <Section title="Electric Flower">
+        <button
+          style={{
+            ...styles.modeButton,
+            ...(state.electricFlower ? styles.flowerBtnActive : {}),
+            width: '100%',
+          }}
+          onClick={() => actions.setElectricFlower(!state.electricFlower)}
+        >
+          {state.electricFlower ? 'Electric Flower ON (F)' : 'Electric Flower OFF (F)'}
+        </button>
+        {state.electricFlower && (
+          <div style={styles.meditationHint}>
+            Rose-curve petals + radial blur — audio reactive
+          </div>
+        )}
+      </Section>
+
+      {/* ─── Particle Waves ─── */}
+      <Section title="Particle Waves">
+        <button
+          style={{
+            ...styles.modeButton,
+            ...(state.particleWaves ? styles.wavesBtnActive : {}),
+            width: '100%',
+          }}
+          onClick={() => actions.setParticleWaves(!state.particleWaves)}
+        >
+          {state.particleWaves ? 'Particle Waves ON (W)' : 'Particle Waves OFF (W)'}
+        </button>
+        {state.particleWaves && (
+          <div style={styles.meditationHint}>
+            Flowing 3D particle surfaces — audio reactive
+          </div>
+        )}
+      </Section>
+
+      {/* ─── Advanced Effects ─── */}
+      <Section title="Effects">
+        <div style={styles.effectGrid}>
+          {[
+            { key: 'lightWarp', label: 'Light Warp' },
+            { key: 'constellations', label: 'Stars' },
+            { key: 'chordGeometry', label: 'Geometry' },
+            { key: 'shockwave', label: 'Shockwave' },
+            { key: 'lightEcho', label: 'Echo Trail' },
+            { key: 'depthParallax', label: 'Parallax' },
+            { key: 'cadenceLock', label: 'Cadence' },
+            { key: 'modulationPortal', label: 'Portal' },
+            { key: 'harmonyOrbit', label: 'Orbit' },
+            { key: 'pulseLock', label: 'Pulse' },
+          ].map(({ key, label }) => (
+            <button
+              key={key}
+              style={{
+                ...styles.effectBtn,
+                ...(state.effectToggles[key] ? styles.effectBtnActive : {}),
+              }}
+              onClick={() => actions.toggleEffect(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div style={{ ...styles.row, marginTop: 6, gap: 4 }}>
+          <button
+            style={{
+              ...styles.modeButton,
+              ...(state.freezeMode ? styles.meditationBtnActive : {}),
+              flex: 1,
+            }}
+            onClick={actions.toggleFreeze}
+          >
+            {state.freezeMode ? 'Unfreeze (Z)' : 'Freeze (Z)'}
+          </button>
+          <button
+            style={{ ...styles.modeButton, flex: 1 }}
+            onClick={actions.cycleSymmetry}
+          >
+            Sym: {state.symmetryMode} (Y)
+          </button>
+        </div>
+        <div style={{ ...styles.row, marginTop: 4, gap: 4 }}>
+          <button
+            style={{
+              ...styles.modeButton,
+              ...(state.trailerPhase !== 'idle' ? styles.meditationBtnActive : {}),
+              flex: 1,
+            }}
+            onClick={actions.triggerCinematicTrailer}
+          >
+            {state.trailerPhase !== 'idle' ? `Epic: ${state.trailerPhase}` : 'Make it Epic'}
+          </button>
+          <button
+            style={{ ...styles.modeButton, flex: 1 }}
+            onClick={actions.triggerCosmicZoom}
+          >
+            Cosmic Zoom
+          </button>
+        </div>
+        {state.emotion !== 'calm' && (
+          <div style={styles.emotionBadge}>
+            Emotion: {state.emotion}
+          </div>
+        )}
+      </Section>
+
       {/* ─── Performance Mode ─── */}
       <Section title="Mode">
         <button
@@ -488,6 +648,65 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 4,
     textTransform: 'uppercase' as const,
     letterSpacing: '0.04em',
+  },
+  meditationBtnActive: {
+    background: 'rgba(129, 140, 248, 0.3)',
+    borderColor: 'rgba(129, 140, 248, 0.5)',
+    color: '#c4b5fd',
+  },
+  eternityBtnActive: {
+    background: 'rgba(236, 200, 100, 0.25)',
+    borderColor: 'rgba(236, 200, 100, 0.5)',
+    color: '#f0d870',
+  },
+  gpuBtnActive: {
+    background: 'rgba(52, 211, 153, 0.25)',
+    borderColor: 'rgba(52, 211, 153, 0.5)',
+    color: '#6ee7b7',
+  },
+  flowerBtnActive: {
+    background: 'rgba(249, 115, 22, 0.25)',
+    borderColor: 'rgba(249, 115, 22, 0.5)',
+    color: '#fb923c',
+  },
+  wavesBtnActive: {
+    background: 'rgba(59, 130, 246, 0.25)',
+    borderColor: 'rgba(59, 130, 246, 0.5)',
+    color: '#93c5fd',
+  },
+  effectGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(5, 1fr)',
+    gap: 3,
+  } as React.CSSProperties,
+  effectBtn: {
+    padding: '4px 2px',
+    fontSize: 9,
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: 4,
+    background: 'rgba(255,255,255,0.04)',
+    color: 'rgba(255,255,255,0.5)',
+    cursor: 'pointer',
+    transition: 'all 0.2s',
+  } as React.CSSProperties,
+  effectBtnActive: {
+    background: 'rgba(139, 92, 246, 0.3)',
+    borderColor: 'rgba(139, 92, 246, 0.5)',
+    color: '#c4b5fd',
+  } as React.CSSProperties,
+  emotionBadge: {
+    marginTop: 6,
+    fontSize: 10,
+    textAlign: 'center' as const,
+    color: 'rgba(196, 181, 253, 0.6)',
+    fontStyle: 'italic' as const,
+  } as React.CSSProperties,
+  meditationHint: {
+    fontSize: 10,
+    color: 'rgba(196, 181, 253, 0.5)',
+    marginTop: 6,
+    fontStyle: 'italic' as const,
+    textAlign: 'center' as const,
   },
   debug: {
     display: 'flex',

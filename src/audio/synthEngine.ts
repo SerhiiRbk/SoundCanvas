@@ -59,31 +59,31 @@ export interface InstrumentPreset {
    ---------------------------------------------------------------- */
 
 export const INSTRUMENT_PRESETS: InstrumentPreset[] = [
-  /* ── Default Synth ── */
+  /* ── Default Synth — warm, soft pad-like tone ── */
   {
     id: 'default',
     name: 'Default Synth',
     voiceKind: 'Synth',
     oscillatorType: 'triangle8',
-    envelope: { attack: 0.02, decay: 0.3, sustain: 0.4, release: 0.8 },
-    volume: 0,
-    filterFreq: 5000, filterQ: 1,
-    reverbWet: 0.3, delayWet: 0.15, delayFeedback: 0.2,
+    envelope: { attack: 0.08, decay: 0.5, sustain: 0.35, release: 1.4 },
+    volume: -4,
+    filterFreq: 3500, filterQ: 0.7,
+    reverbWet: 0.45, delayWet: 0.2, delayFeedback: 0.25,
     vibratoRate: 0, vibratoDepth: 0,
     chorusWet: 0, chorusFreq: 0, chorusDepth: 0, chorusDelayTime: 3.5,
     breathiness: 0, breathFilterFreq: 2000,
   },
 
-  /* ── Harp — plucked, bright attack, no sustain, resonant reverb ── */
+  /* ── Harp — plucked, gentle attack, resonant reverb ── */
   {
     id: 'harp',
     name: 'Harp',
     voiceKind: 'Synth',
     oscillatorType: 'triangle',
-    envelope: { attack: 0.003, decay: 1.0, sustain: 0.0, release: 1.8 },
-    volume: 0,
-    filterFreq: 5000, filterQ: 0.5,
-    reverbWet: 0.5, delayWet: 0.08, delayFeedback: 0.15,
+    envelope: { attack: 0.01, decay: 1.2, sustain: 0.0, release: 2.2 },
+    volume: -3,
+    filterFreq: 4000, filterQ: 0.5,
+    reverbWet: 0.55, delayWet: 0.12, delayFeedback: 0.2,
     vibratoRate: 0, vibratoDepth: 0,
     chorusWet: 0, chorusFreq: 0, chorusDepth: 0, chorusDelayTime: 3.5,
     breathiness: 0, breathFilterFreq: 2000,
@@ -127,20 +127,20 @@ export const INSTRUMENT_PRESETS: InstrumentPreset[] = [
     breathiness: 0, breathFilterFreq: 2000,
   },
 
-  /* ── Piano — FM hammer strike with decaying modulation ── */
+  /* ── Piano — FM hammer strike with decaying modulation, warm ── */
   {
     id: 'piano',
     name: 'Piano',
     voiceKind: 'FMSynth',
     oscillatorType: 'sine',
-    envelope: { attack: 0.004, decay: 1.6, sustain: 0.08, release: 1.2 },
-    volume: 0,
+    envelope: { attack: 0.008, decay: 1.8, sustain: 0.06, release: 1.6 },
+    volume: -3,
     harmonicity: 2,
-    modulationIndex: 3.2,
+    modulationIndex: 2.5,
     modulationType: 'sine',
-    modulationEnvelope: { attack: 0.004, decay: 0.9, sustain: 0.05, release: 0.4 },
-    filterFreq: 7000, filterQ: 0.7,
-    reverbWet: 0.22, delayWet: 0.04, delayFeedback: 0.1,
+    modulationEnvelope: { attack: 0.008, decay: 1.0, sustain: 0.04, release: 0.5 },
+    filterFreq: 5000, filterQ: 0.5,
+    reverbWet: 0.35, delayWet: 0.1, delayFeedback: 0.18,
     vibratoRate: 0, vibratoDepth: 0,
     chorusWet: 0, chorusFreq: 0, chorusDepth: 0, chorusDelayTime: 3.5,
     breathiness: 0, breathFilterFreq: 2000,
@@ -237,6 +237,25 @@ export const INSTRUMENT_PRESETS: InstrumentPreset[] = [
     vibratoRate: 5.0, vibratoDepth: 0.05,
     chorusWet: 0, chorusFreq: 0, chorusDepth: 0, chorusDelayTime: 3.5,
     breathiness: 0.35, breathFilterFreq: 4500,
+  },
+
+  /* ── Indian Harmonium — reedy bellows organ, droning, warm chorus ── */
+  {
+    id: 'harmonium',
+    name: 'Indian Harmonium',
+    voiceKind: 'FMSynth',
+    oscillatorType: 'sine',
+    envelope: { attack: 0.18, decay: 0.25, sustain: 0.85, release: 0.6 },
+    volume: -3,
+    harmonicity: 1,
+    modulationIndex: 2.2,
+    modulationType: 'square',
+    modulationEnvelope: { attack: 0.2, decay: 0.3, sustain: 0.8, release: 0.5 },
+    filterFreq: 2800, filterQ: 3.0,
+    reverbWet: 0.35, delayWet: 0.08, delayFeedback: 0.12,
+    vibratoRate: 3.8, vibratoDepth: 0.015,
+    chorusWet: 0.55, chorusFreq: 2.2, chorusDepth: 0.7, chorusDelayTime: 4.5,
+    breathiness: 0.45, breathFilterFreq: 1600,
   },
 
   /* ── Oboe — heavily modulated FM reed, nasal narrow filter ── */
@@ -399,6 +418,12 @@ export class SynthEngine {
   private vibrato: Tone.Vibrato | null = null;
   private chorus: Tone.Chorus | null = null;
 
+  /* ── Meditation percussion ── */
+  private bowlSynth: Tone.FMSynth | null = null;
+  private membraneSynth: Tone.MembraneSynth | null = null;
+  private brushSynth: Tone.NoiseSynth | null = null;
+  private brushFilter2: Tone.Filter | null = null;
+
   /* ── Breath noise layer for wind instruments ── */
   private breathSynth: Tone.NoiseSynth | null = null;
   private breathFilter: Tone.Filter | null = null;
@@ -409,9 +434,33 @@ export class SynthEngine {
   private filter: Tone.Filter | null = null;
   private reverb: Tone.Reverb | null = null;
   private delay: Tone.FeedbackDelay | null = null;
+  private panner: Tone.Panner | null = null;
   private masterGain: Tone.Gain | null = null;
   private analyser: Tone.Analyser | null = null;
   private fft: Tone.FFT | null = null;
+
+  /* ── Harmonic bloom ── */
+  private bloomSynth: Tone.PolySynth | null = null;
+  private shimmerDelay: Tone.FeedbackDelay | null = null;
+  private harmonicBloomEnabled = true;
+
+  /* ── Chord swell pad ── */
+  private swellPad: Tone.PolySynth | null = null;
+  private swellFilter: Tone.Filter | null = null;
+  private swellGain: Tone.Gain | null = null;
+  private swellActive = false;
+
+  /* ── Ghost arpeggiator ── */
+  private ghostSynth: Tone.PolySynth | null = null;
+  private ghostGain: Tone.Gain | null = null;
+  private ghostActive = false;
+  private ghostIntervalId: ReturnType<typeof setInterval> | null = null;
+
+  /* ── Counter-melody shadow ── */
+  private shadowSynth: Tone.PolySynth | null = null;
+  private shadowGain: Tone.Gain | null = null;
+  private shadowActive = false;
+  private shadowBuffer: { pitch: number; velocity: number; duration: number; time: number }[] = [];
 
   /* ── Recording destination (connected alongside dest) ── */
   private recordingDest: MediaStreamAudioDestinationNode | null = null;
@@ -428,20 +477,36 @@ export class SynthEngine {
     await Tone.start();
 
     // Shared FX chain (persistent across instrument switches)
-    this.masterGain = new Tone.Gain(0.7);
-    this.reverb = new Tone.Reverb({ decay: 3.0, wet: 0.3 });
-    this.delay = new Tone.FeedbackDelay({ delayTime: '8n', feedback: 0.2, wet: 0.15 });
-    this.filter = new Tone.Filter({ frequency: 5000, type: 'lowpass', rolloff: -12 });
+    this.masterGain = new Tone.Gain(0.4);
+    this.panner = new Tone.Panner(0);
+    this.reverb = new Tone.Reverb({ decay: 4.5, wet: 0.45 });
+    this.delay = new Tone.FeedbackDelay({ delayTime: '8n', feedback: 0.25, wet: 0.2 });
+    this.filter = new Tone.Filter({ frequency: 3500, type: 'lowpass', rolloff: -12 });
     this.analyser = new Tone.Analyser('waveform', FFT_SIZE);
     this.fft = new Tone.FFT(FFT_SIZE);
 
-    // Shared chain: filter → delay → reverb → masterGain → dest
+    // Shared chain: filter → delay → reverb → panner → masterGain → dest
     this.filter.connect(this.delay);
     this.delay.connect(this.reverb);
-    this.reverb.connect(this.masterGain);
+    this.reverb.connect(this.panner);
+    this.panner.connect(this.masterGain);
     this.masterGain.connect(this.analyser);
     this.masterGain.connect(this.fft);
     this.masterGain.toDestination();
+
+    // Harmonic bloom synth (octave + fifth overtones) — gentle shimmer
+    this.bloomSynth = new Tone.PolySynth(Tone.Synth, {
+      maxPolyphony: 6,
+      voice: Tone.Synth,
+      options: {
+        oscillator: { type: 'sine' },
+        envelope: { attack: 0.12, decay: 0.6, sustain: 0.15, release: 2.0 },
+        volume: -24,
+      },
+    });
+    this.shimmerDelay = new Tone.FeedbackDelay({ delayTime: 0.35, feedback: 0.35, wet: 0.45 });
+    this.bloomSynth.connect(this.shimmerDelay);
+    this.shimmerDelay.connect(this.reverb);
 
     // Create recording destination (for MediaRecorder capture)
     const rawCtx = Tone.getContext().rawContext;
@@ -467,28 +532,28 @@ export class SynthEngine {
     this.breathSynth.connect(this.breathFilter);
     this.breathFilter.connect(this.reverb);
 
-    // Pad synth (unchanged)
+    // Pad synth — soft, ambient
     this.padSynth = new Tone.PolySynth(Tone.Synth, {
       maxPolyphony: 6,
       voice: Tone.Synth,
       options: {
         oscillator: { type: 'sine' },
-        envelope: { attack: 0.5, decay: 0.5, sustain: 0.6, release: 2.0 },
-        volume: -12,
+        envelope: { attack: 0.8, decay: 0.6, sustain: 0.5, release: 2.5 },
+        volume: -16,
       },
     });
     this.padSynth.connect(this.reverb);
 
-    // Bass synth (unchanged)
+    // Bass synth — warm, round
     this.bassSynth = new Tone.MonoSynth({
-      oscillator: { type: 'sawtooth' },
-      filter: { Q: 2, frequency: 800, type: 'lowpass' },
-      envelope: { attack: 0.05, decay: 0.3, sustain: 0.5, release: 0.5 },
+      oscillator: { type: 'sine' },
+      filter: { Q: 1.2, frequency: 600, type: 'lowpass' },
+      envelope: { attack: 0.1, decay: 0.4, sustain: 0.4, release: 0.8 },
       filterEnvelope: {
-        attack: 0.06, decay: 0.2, sustain: 0.5, release: 0.5,
-        baseFrequency: 200, octaves: 2,
+        attack: 0.12, decay: 0.3, sustain: 0.4, release: 0.6,
+        baseFrequency: 150, octaves: 1.5,
       },
-      volume: -8,
+      volume: -12,
     });
     this.bassSynth.connect(this.masterGain);
 
@@ -497,6 +562,83 @@ export class SynthEngine {
     this.ensembleReverb = new Tone.Reverb({ decay: 2.5, wet: 0.35 });
     this.ensembleBus.connect(this.ensembleReverb);
     this.ensembleReverb.connect(this.masterGain);
+
+    // ── Chord swell pad (Adaptive Chord Swell) ──
+    this.swellFilter = new Tone.Filter({ frequency: 200, type: 'lowpass', rolloff: -12 });
+    this.swellGain = new Tone.Gain(0);
+    this.swellPad = new Tone.PolySynth(Tone.Synth, {
+      maxPolyphony: 6,
+      voice: Tone.Synth,
+      options: {
+        oscillator: { type: 'sine' },
+        envelope: { attack: 1.0, decay: 0.5, sustain: 0.7, release: 2.0 },
+        volume: -14,
+      },
+    });
+    this.swellPad.connect(this.swellFilter);
+    this.swellFilter.connect(this.swellGain);
+    this.swellGain.connect(this.reverb);
+
+    // ── Ghost arpeggiator synth ──
+    this.ghostGain = new Tone.Gain(0);
+    this.ghostSynth = new Tone.PolySynth(Tone.Synth, {
+      maxPolyphony: 4,
+      voice: Tone.Synth,
+      options: {
+        oscillator: { type: 'triangle' },
+        envelope: { attack: 0.01, decay: 0.15, sustain: 0.1, release: 0.3 },
+        volume: -20,
+      },
+    });
+    this.ghostSynth.connect(this.ghostGain);
+    this.ghostGain.connect(this.reverb);
+
+    // ── Counter-melody shadow synth ──
+    this.shadowGain = new Tone.Gain(0);
+    this.shadowSynth = new Tone.PolySynth(Tone.Synth, {
+      maxPolyphony: 4,
+      voice: Tone.Synth,
+      options: {
+        oscillator: { type: 'sine' },
+        envelope: { attack: 0.1, decay: 0.3, sustain: 0.4, release: 1.0 },
+        volume: -22,
+      },
+    });
+    this.shadowSynth.connect(this.shadowGain);
+    this.shadowGain.connect(this.reverb);
+
+    // ── Meditation percussion ──
+    // Singing bowl: metallic FM with long release → reverb
+    this.bowlSynth = new Tone.FMSynth({
+      harmonicity: 5.07,        // metallic inharmonic ratio
+      modulationIndex: 1.5,
+      oscillator: { type: 'sine' },
+      modulation: { type: 'triangle' },
+      envelope: { attack: 0.01, decay: 4.0, sustain: 0.0, release: 4.0 },
+      modulationEnvelope: { attack: 0.01, decay: 2.0, sustain: 0.0, release: 3.0 },
+      volume: -22,
+    });
+    this.bowlSynth.connect(this.reverb);
+
+    // Soft membrane: gentle "dun" like a frame drum
+    this.membraneSynth = new Tone.MembraneSynth({
+      pitchDecay: 0.08,
+      octaves: 3,
+      oscillator: { type: 'sine' },
+      envelope: { attack: 0.002, decay: 0.8, sustain: 0.0, release: 1.0 },
+      volume: -26,
+    });
+    this.membraneSynth.connect(this.reverb);
+
+    // Brush noise: short filtered pink noise (rain-stick feel)
+    this.brushFilter2 = new Tone.Filter({ frequency: 3000, type: 'bandpass', Q: 0.8 });
+    this.brushSynth = new Tone.NoiseSynth({
+      noise: { type: 'pink' },
+      envelope: { attack: 0.005, decay: 0.12, sustain: 0.0, release: 0.15 },
+      volume: -30,
+    });
+    this.brushSynth.connect(this.brushFilter2);
+    this.brushFilter2.connect(this.reverb);
 
     this.initialized = true;
   }
@@ -855,6 +997,20 @@ export class SynthEngine {
       }
     }
 
+    // Harmonic bloom: add gentle overtones on high velocity
+    if (this.harmonicBloomEnabled && velocity > 100 && this.bloomSynth) {
+      const octave = midiToNoteName(pitch + 12);
+      const fifth = midiToNoteName(pitch + 7);
+      this.bloomSynth.triggerAttackRelease(octave, duration * 2.5, undefined, vel * 0.2);
+      this.bloomSynth.triggerAttackRelease(fifth, duration * 2.5, undefined, vel * 0.15);
+    }
+
+    // Counter-melody shadow: buffer note for delayed playback
+    if (this.shadowActive && this.shadowSynth) {
+      this.shadowBuffer.push({ pitch, velocity, duration, time: performance.now() });
+      this.processShadowBuffer();
+    }
+
     // Ensemble voices play harmonically derived notes
     this.playEnsembleVoices(pitch, velocity, duration);
     this.prevLeadPitch = pitch;
@@ -863,13 +1019,35 @@ export class SynthEngine {
   playChord(pitches: number[], duration = 2): void {
     if (!this.padSynth || !this.initialized) return;
     const notes = pitches.map(midiToNoteName);
-    this.padSynth.triggerAttackRelease(notes, duration, undefined, 0.3);
+    this.padSynth.triggerAttackRelease(notes, duration, undefined, 0.2);
   }
 
   playBass(pitch: number, duration = 1): void {
     if (!this.bassSynth || !this.initialized) return;
     const note = midiToNoteName(pitch);
-    this.bassSynth.triggerAttackRelease(note, duration, undefined, 0.5);
+    this.bassSynth.triggerAttackRelease(note, duration, undefined, 0.35);
+  }
+
+  /**
+   * Meditation percussion.
+   * @param kind  'bowl' | 'membrane' | 'brush'
+   * @param pitch MIDI pitch (only used for bowl and membrane)
+   * @param vel   0..1 velocity
+   */
+  playMeditationPerc(kind: 'bowl' | 'membrane' | 'brush', pitch = 60, vel = 0.4): void {
+    if (!this.initialized) return;
+    const note = midiToNoteName(pitch);
+    switch (kind) {
+      case 'bowl':
+        this.bowlSynth?.triggerAttackRelease(note, 3.0, undefined, vel);
+        break;
+      case 'membrane':
+        this.membraneSynth?.triggerAttackRelease(note, 0.6, undefined, vel);
+        break;
+      case 'brush':
+        this.brushSynth?.triggerAttackRelease(0.1, undefined, vel);
+        break;
+    }
   }
 
   /* ────────────────────────────────────────────
@@ -919,6 +1097,131 @@ export class SynthEngine {
     };
   }
 
+  /* ────────────────────────────────────────────
+     Spatial Audio
+     ──────────────────────────────────────────── */
+
+  /** Set spatial position based on cursor. X → pan (-1..1), Y → depth filter. */
+  setSpatialPosition(x: number, y: number, width: number, height: number): void {
+    if (!this.panner || !this.filter) return;
+    const panX = Math.max(-1, Math.min(1, (x / width) * 2 - 1));
+    this.panner.pan.rampTo(panX, 0.05);
+    // Y modulates filter for depth effect (top = bright, bottom = muffled)
+    const yNorm = Math.max(0, Math.min(1, y / height));
+    const depthFilter = this.currentPreset.filterFreq * (1 - yNorm * 0.4);
+    this.filter.frequency.rampTo(Math.max(200, depthFilter), 0.08);
+  }
+
+  /* ────────────────────────────────────────────
+     Harmonic Bloom
+     ──────────────────────────────────────────── */
+
+  setHarmonicBloomEnabled(on: boolean): void {
+    this.harmonicBloomEnabled = on;
+  }
+
+  isHarmonicBloomEnabled(): boolean {
+    return this.harmonicBloomEnabled;
+  }
+
+  /* ────────────────────────────────────────────
+     Adaptive Chord Swell
+     ──────────────────────────────────────────── */
+
+  /** Set chord swell intensity (0 = off, 1 = full). Driven by curvature. */
+  setChordSwellIntensity(intensity: number, chordPitches?: number[]): void {
+    if (!this.swellGain || !this.swellFilter || !this.swellPad) return;
+    const clamped = Math.max(0, Math.min(1, intensity));
+
+    if (clamped > 0.05 && !this.swellActive) {
+      this.swellActive = true;
+      if (chordPitches && chordPitches.length > 0) {
+        const notes = chordPitches.map(midiToNoteName);
+        this.swellPad.triggerAttack(notes, undefined, 0.3);
+      }
+    } else if (clamped <= 0.05 && this.swellActive) {
+      this.swellActive = false;
+      this.swellPad.releaseAll();
+    }
+
+    this.swellGain.gain.rampTo(clamped * 0.7, 0.3);
+    this.swellFilter.frequency.rampTo(200 + clamped * 3800, 0.5);
+  }
+
+  /* ────────────────────────────────────────────
+     Rhythmic Ghost Layer
+     ──────────────────────────────────────────── */
+
+  /** Start ghost arpeggiator at given period (seconds). */
+  startGhostArpeggio(periodSec: number): void {
+    if (this.ghostActive || !this.ghostSynth || !this.ghostGain) return;
+    this.ghostActive = true;
+    this.ghostGain.gain.rampTo(0.6, 1.0);
+
+    const halfPeriod = (periodSec / 2) * 1000; // ghost at 2x speed
+    this.ghostIntervalId = setInterval(() => {
+      if (!this.ghostActive || !this.ghostSynth) return;
+      const tones = Array.from(this.musicalCtx.chordPCs);
+      if (tones.length === 0) return;
+      const pc = tones[Math.floor(Math.random() * tones.length)];
+      const oct = 4 + Math.floor(Math.random() * 2);
+      const pitch = pc + oct * 12;
+      const note = midiToNoteName(pitch);
+      const vel = 0.15 + Math.random() * 0.1;
+      this.ghostSynth!.triggerAttackRelease(note, 0.1, undefined, vel);
+    }, halfPeriod);
+  }
+
+  stopGhostArpeggio(): void {
+    if (!this.ghostActive) return;
+    this.ghostActive = false;
+    this.ghostGain?.gain.rampTo(0, 0.5);
+    if (this.ghostIntervalId) {
+      clearInterval(this.ghostIntervalId);
+      this.ghostIntervalId = null;
+    }
+  }
+
+  isGhostActive(): boolean { return this.ghostActive; }
+
+  /* ────────────────────────────────────────────
+     Counter-Melody Shadow
+     ──────────────────────────────────────────── */
+
+  setShadowEnabled(on: boolean): void {
+    if (on && !this.shadowActive) {
+      this.shadowActive = true;
+      this.shadowGain?.gain.rampTo(0.5, 0.5);
+    } else if (!on && this.shadowActive) {
+      this.shadowActive = false;
+      this.shadowGain?.gain.rampTo(0, 0.5);
+      this.shadowBuffer = [];
+    }
+  }
+
+  isShadowEnabled(): boolean { return this.shadowActive; }
+
+  private processShadowBuffer(): void {
+    const now = performance.now();
+    const SHADOW_DELAY_MS = 500;
+    while (this.shadowBuffer.length > 0 && now - this.shadowBuffer[0].time >= SHADOW_DELAY_MS) {
+      const ev = this.shadowBuffer.shift()!;
+      if (!this.shadowSynth) break;
+      // Transpose by a 3rd (4 semitones) or 6th (9 semitones)
+      const interval = Math.random() > 0.5 ? 4 : 9;
+      const shadowPitch = Math.max(36, Math.min(96, ev.pitch + interval));
+      const note = midiToNoteName(shadowPitch);
+      this.shadowSynth.triggerAttackRelease(note, ev.duration * 1.5, undefined, ev.velocity / 127 * 0.2);
+    }
+  }
+
+  /* ────────────────────────────────────────────
+     Master gain access (for cinematic drop)
+     ──────────────────────────────────────────── */
+
+  getMasterGain(): Tone.Gain | null { return this.masterGain; }
+  getFilter(): Tone.Filter | null { return this.filter; }
+
   isReady(): boolean { return this.initialized; }
 
   /** Returns the MediaStreamAudioDestinationNode for recording, or null */
@@ -930,12 +1233,27 @@ export class SynthEngine {
     this.teardownLeadChain();
     this.disposeSampler();
     this.disposeAllEnsembleVoices();
+    this.stopGhostArpeggio();
     this.ensembleBus?.dispose();
     this.ensembleReverb?.dispose();
     this.padSynth?.dispose();
     this.bassSynth?.dispose();
     this.breathSynth?.dispose();
     this.breathFilter?.dispose();
+    this.bowlSynth?.dispose();
+    this.membraneSynth?.dispose();
+    this.brushSynth?.dispose();
+    this.brushFilter2?.dispose();
+    this.bloomSynth?.dispose();
+    this.shimmerDelay?.dispose();
+    this.swellPad?.dispose();
+    this.swellFilter?.dispose();
+    this.swellGain?.dispose();
+    this.ghostSynth?.dispose();
+    this.ghostGain?.dispose();
+    this.shadowSynth?.dispose();
+    this.shadowGain?.dispose();
+    this.panner?.dispose();
     this.filter?.dispose();
     this.reverb?.dispose();
     this.delay?.dispose();
